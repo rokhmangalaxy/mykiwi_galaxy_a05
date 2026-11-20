@@ -1,0 +1,50 @@
+{
+  "manifest_version": 2,
+  "name": "ShopVault Kiwi Worker",
+  "short_name": "ShopVault Worker",
+  "version": "1.0.0",
+  "description": "Background worker di Kiwi Browser Dev untuk menyadap response body produk Shopee & web lalu menyimpannya ke aplikasi ShopVault (com.mykiwi.vault).",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "browser_action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    },
+    "default_title": "ShopVault Worker",
+    "default_popup": "idle.html"
+  },
+  "background": {
+    "scripts": [
+      "shopee_parser.js",
+      "background.js"
+    ],
+    "persistent": true
+  },
+  "permissions": [
+    "tabs",
+    "debugger",
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content_bridge.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    "page_hook.js"
+  ]
+}

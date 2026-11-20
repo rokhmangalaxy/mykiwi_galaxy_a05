@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="vault_bg">#0F172A</color>
+    <color name="vault_surface">#1E293B</color>
+    <color name="vault_surface_alt">#273549</color>
+    <color name="vault_border">#334155</color>
+    <color name="vault_primary">#F97316</color>
+    <color name="vault_primary_dark">#EA580C</color>
+    <color name="vault_teal">#14B8A6</color>
+    <color name="vault_text">#F8FAFC</color>
+    <color name="vault_text_muted">#94A3B8</color>
+    <color name="vault_ok">#10B981</color>
+    <color name="vault_warn">#F59E0B</color>
+    <color name="vault_error">#EF4444</color>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <external-files-path name="vault_external_files" path="." />
+    <files-path name="vault_internal_files" path="." />
+    <cache-path name="vault_cache" path="." />
+</paths>

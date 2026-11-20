@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShopVault Kiwi Worker</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #f97316;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --err: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 16px;
+      min-width: 320px;
+      max-width: 680px;
+      margin-inline: auto;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 2px 0 0;
+    }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(239, 68, 68, 0.16);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      white-space: nowrap;
+    }
+    .badge.ok {
+      background: rgba(16, 185, 129, 0.16);
+      color: #6ee7b7;
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .stat-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .stat-label { font-size: 11px; color: var(--muted); }
+    .stat-val { font-size: 16px; font-weight: 700; margin-top: 2px; }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    button, a.btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #334155;
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .alert {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #fde68a;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .logs {
+      max-height: 220px;
+      overflow-y: auto;
+      font-family: ui-monospace, monospace;
+      font-size: 11.5px;
+      background: #090e1a;
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid var(--border);
+    }
+    .log-item { margin-bottom: 5px; word-break: break-word; }
+    .log-item.error { color: #fca5a5; }
+    .log-item.warn { color: #fde68a; }
+    .log-item.info { color: #cbd5e1; }
+    .hint { font-size: 12px; color: var(--muted); }
+    label.switch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1 class="title">ShopVault Worker</h1>
+      <p class="subtitle">Biarkan tab ringan ini tetap ada di Kiwi Browser Dev</p>
+    </div>
+    <span id="connBadge" class="badge">Terputus</span>
+  </div>
+
+  <div id="pauseAlert" class="alert"></div>
+
+  <div class="card">
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-label">Produk Tersimpan (Sesi Ini)</div>
+        <div id="capturedCount" class="stat-val">0</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Status Worker</div>
+        <div id="workerState" class="stat-val">Siaga</div>
+      </div>
+    </div>
+
+    <label class="switch">
+      <input type="checkbox" id="cdpToggle" checked />
+      <span>Gunakan CDP <code>Network.getResponseBody</code> + Hook XHR</span>
+    </label>
+
+    <div class="btn-row">
+      <button id="resumeBtn" class="primary">Lanjutkan Antrean</button>
+      <button id="reconnectBtn">Sambung Ulang Bridge</button>
+      <a class="btn" href="https://shopee.co.id/buyer/login" target="_blank" rel="noopener">Buka Login Shopee</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Log Aktivitas Terbaru</div>
+    <div id="logBox" class="logs">Memuat status worker...</div>
+    <p class="hint" style="margin:10px 0 0;">
+      Tab ini menjadi <em>anchor</em> hemat RAM (~2 MB) untuk menangkap Share dari aplikasi Shopee ke <strong>ShopVault (com.mykiwi.vault)</strong> tanpa berpindah layar.
+    </p>
+  </div>
+
+  <script src="idle.js"></script>
+</body>
+</html>
