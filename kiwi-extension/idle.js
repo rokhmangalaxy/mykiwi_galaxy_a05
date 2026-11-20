@@ -2,6 +2,7 @@
   "use strict";
 
   const connBadge = document.getElementById("connBadge");
+  const openDashboardBtn = document.getElementById("openDashboardBtn");
   const capturedCount = document.getElementById("capturedCount");
   const workerState = document.getElementById("workerState");
   const pauseAlert = document.getElementById("pauseAlert");
@@ -11,14 +12,22 @@
   const reconnectBtn = document.getElementById("reconnectBtn");
   const cdpToggle = document.getElementById("cdpToggle");
   const cloakToggle = document.getElementById("cloakToggle");
+  const cookieInput = document.getElementById("cookieInput");
+  const importCookieBtn = document.getElementById("importCookieBtn");
+  const exportCookieBtn = document.getElementById("exportCookieBtn");
+  const cookieFeedback = document.getElementById("cookieFeedback");
 
   function render(st) {
     if (!st) return;
+    const dashUrl = `http://${st.bridgeHost || "127.0.0.1"}:${st.bridgePort || 8765}/`;
+    connBadge.href = dashUrl;
+    if (openDashboardBtn) openDashboardBtn.href = dashUrl;
+
     if (st.wsConnected) {
-      connBadge.textContent = `Terhubung :${st.bridgePort}`;
+      connBadge.textContent = `Terhubung :${st.bridgePort} ↗`;
       connBadge.className = "badge ok";
     } else {
-      connBadge.textContent = "Menunggu ShopVault";
+      connBadge.textContent = "Menunggu ShopVault ↗";
       connBadge.className = "badge";
     }
 
@@ -29,7 +38,7 @@
     if (st.paused) {
       workerState.textContent = "Dijeda";
       pauseAlert.style.display = "block";
-      pauseAlert.textContent = `⚠️ Antrean dijeda: ${st.pauseReason || "Gunakan tombol Reset Cookie & Buka Login QR (Mode PC) di bawah."}`;
+      pauseAlert.textContent = `⚠️ Antrean dijeda: ${st.pauseReason || "Silakan login Shopee di Kiwi Dev lalu klik Lanjutkan Antrean."}`;
     } else if (st.processingJob) {
       workerState.textContent = `Memproses #${st.processingJob.id}`;
       pauseAlert.style.display = "none";
@@ -63,12 +72,45 @@
 
   qrLoginBtn.addEventListener("click", function () {
     qrLoginBtn.disabled = true;
-    qrLoginBtn.textContent = "⏳ Menyiapkan sesi PC & membuka QR...";
+    qrLoginBtn.textContent = "⏳ Menyiapkan form login tengah layar...";
     chrome.runtime.sendMessage({ type: "RESET_SHOPEE_SESSION_AND_OPEN_QR" }, function (res) {
       qrLoginBtn.disabled = false;
-      qrLoginBtn.textContent = "🧹 Reset Cookie Shopee & Buka Login QR (Mode PC)";
+      qrLoginBtn.textContent = "🧹 Reset Cookie & Buka Form Login (Tengah Layar)";
       if (!chrome.runtime.lastError && res) {
         render(res);
+      }
+    });
+  });
+
+  importCookieBtn.addEventListener("click", function () {
+    const raw = (cookieInput.value || "").trim();
+    if (!raw) {
+      cookieFeedback.textContent = "⚠️ Tempel teks JSON / header Cookie terlebih dahulu.";
+      return;
+    }
+    importCookieBtn.disabled = true;
+    chrome.runtime.sendMessage(
+      { type: "IMPORT_SHOPEE_COOKIES", rawCookies: raw },
+      function (res) {
+        importCookieBtn.disabled = false;
+        if (res && res.ok) {
+          cookieFeedback.textContent = `✅ Berhasil memasang ${res.applied} cookie sesi Shopee!`;
+          cookieInput.value = "";
+          render(res);
+        } else {
+          cookieFeedback.textContent = `❌ ${(res && res.error) || "Gagal mengimpor cookie"}`;
+        }
+      }
+    );
+  });
+
+  exportCookieBtn.addEventListener("click", function () {
+    chrome.runtime.sendMessage({ type: "EXPORT_SHOPEE_COOKIES" }, function (res) {
+      if (res && res.ok) {
+        cookieInput.value = res.json || "[]";
+        cookieInput.select();
+        document.execCommand("copy");
+        cookieFeedback.textContent = `✅ ${res.count} cookie Shopee disalin ke clipboard!`;
       }
     });
   });

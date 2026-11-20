@@ -377,35 +377,114 @@
         };
 
         removeSiteData(function () {
-          chrome.tabs.create({ url: "about:blank", active: true }, function (tab) {
-            if (chrome.runtime.lastError || !tab || !tab.id) {
-              logEvent("error", "Gagal membuka tab Login QR Shopee");
-              resolve({ ok: false });
-              return;
-            }
-            const loginTabId = tab.id;
-            state.qrLoginTabId = loginTabId;
-
-            chrome.debugger.attach({ tabId: loginTabId }, "1.3", function () {
-              if (!chrome.runtime.lastError) {
-                applyCdpDesktopProfile(loginTabId, function () {
-                  chrome.tabs.update(loginTabId, {
-                    url: "https://shopee.co.id/buyer/login",
-                  });
-                });
-              } else {
-                chrome.tabs.update(loginTabId, {
-                  url: "https://shopee.co.id/buyer/login",
-                });
+          // Jangan paksa Emulation 1366x768 atau CDP attach di halaman /buyer/login:
+          // 1) Agar form login pas 1:1 di tengah layar HP (tidak terlempar ke kanan),
+          // 2) Agar proses login/OTP tidak dicurigai oleh detektor CDP Shopee,
+          // sementara Header HTTP + page_hook.js tetap menyamarkan sesi sebagai Windows 10 Chrome 132!
+          chrome.tabs.create(
+            { url: "https://shopee.co.id/buyer/login", active: true },
+            function (tab) {
+              if (chrome.runtime.lastError || !tab || !tab.id) {
+                logEvent("error", "Gagal membuka tab Login Shopee");
+                resolve({ ok: false });
+                return;
               }
+              state.qrLoginTabId = tab.id;
               logEvent(
                 "info",
-                "Tab Login QR Desktop dibuka! Screenshot QR lalu scan dari Galeri di App Shopee."
+                "Form Login Mode PC dibuka tepat di tengah layar! Login pakai No. HP + Password / OTP WhatsApp."
               );
-              resolve({ ok: true, tabId: loginTabId });
-            });
-          });
+              resolve({ ok: true, tabId: tab.id });
+            }
+          );
         });
+      });
+    });
+  }
+
+  function importShopeeCookies(rawInput) {
+    return new Promise((resolve) => {
+      const text = String(rawInput || "").trim();
+      if (!text) {
+        resolve({ ok: false, error: "Input cookie kosong" });
+        return;
+      }
+
+      const toSet = [];
+      if (text.startsWith("[")) {
+        try {
+          const arr = JSON.parse(text);
+          for (const item of arr) {
+            if (item && item.name && item.value !== undefined) {
+              toSet.push({
+                url: "https://shopee.co.id" + (item.path || "/"),
+                name: String(item.name),
+                value: String(item.value),
+                domain: item.domain || ".shopee.co.id",
+                path: item.path || "/",
+                secure: item.secure !== false,
+                httpOnly: Boolean(item.httpOnly),
+                expirationDate:
+                  item.expirationDate || Math.floor(Date.now() / 1000) + 86400 * 180,
+              });
+            }
+          }
+        } catch (err) {
+          resolve({ ok: false, error: "Format JSON cookie tidak valid" });
+          return;
+        }
+      } else {
+        // Format header Cookie: key1=val1; key2=val2
+        const cleaned = text.replace(/^cookie:\s*/i, "");
+        for (const part of cleaned.split(";")) {
+          const idx = part.indexOf("=");
+          if (idx > 0) {
+            const name = part.slice(0, idx).trim();
+            const value = part.slice(idx + 1).trim();
+            if (name) {
+              toSet.push({
+                url: "https://shopee.co.id/",
+                name,
+                value,
+                domain: ".shopee.co.id",
+                path: "/",
+                secure: true,
+                expirationDate: Math.floor(Date.now() / 1000) + 86400 * 180,
+              });
+            }
+          }
+        }
+      }
+
+      if (toSet.length === 0) {
+        resolve({ ok: false, error: "Tidak ada cookie yang ditemukan dari teks tersebut" });
+        return;
+      }
+
+      let pending = toSet.length;
+      let applied = 0;
+      for (const ck of toSet) {
+        chrome.cookies.set(ck, function (saved) {
+          void chrome.runtime.lastError;
+          if (saved) applied += 1;
+          pending -= 1;
+          if (pending <= 0) {
+            state.paused = false;
+            state.pauseReason = null;
+            logEvent("info", `Berhasil memasang ${applied} cookie sesi Shopee!`);
+            triggerQueueCheck();
+            resolve({ ok: true, applied });
+          }
+        });
+      }
+    });
+  }
+
+  function exportShopeeCookies() {
+    return new Promise((resolve) => {
+      chrome.cookies.getAll({ domain: "shopee.co.id" }, function (cookies) {
+        const list = cookies || [];
+        resolve({ ok: true, count: list.length, json: JSON.stringify(list, null, 2) });
       });
     });
   }
@@ -935,14 +1014,11 @@
       const u = (tab && tab.url) || "";
       if (u.includes("shopee.co.id") && !u.includes("/buyer/login") && !u.includes("/verify/")) {
         state.qrLoginTabId = null;
-        chrome.debugger.detach({ tabId }, function () {
-          void chrome.runtime.lastError;
-        });
         if (state.paused) {
           state.paused = false;
           state.pauseReason = null;
         }
-        logEvent("info", "Login QR Shopee Mode PC berhasil! Sesi Desktop aktif.");
+        logEvent("info", "Login Shopee Mode PC berhasil! Sesi Desktop aktif.");
         triggerQueueCheck();
       }
     }
@@ -1018,6 +1094,20 @@
     if (msg.type === "RESET_SHOPEE_SESSION_AND_OPEN_QR") {
       resetShopeeSessionAndOpenQrLogin().then((res) => {
         sendResponse(Object.assign({}, getPublicState(), res));
+      });
+      return true;
+    }
+
+    if (msg.type === "IMPORT_SHOPEE_COOKIES") {
+      importShopeeCookies(msg.rawCookies).then((res) => {
+        sendResponse(Object.assign({}, getPublicState(), res));
+      });
+      return true;
+    }
+
+    if (msg.type === "EXPORT_SHOPEE_COOKIES") {
+      exportShopeeCookies().then((res) => {
+        sendResponse(res);
       });
       return true;
     }

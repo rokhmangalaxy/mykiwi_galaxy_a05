@@ -5,6 +5,7 @@ import android.util.Base64
 import com.mykiwi.vault.data.RawJsonStorage
 import com.mykiwi.vault.data.VaultDatabase
 import com.mykiwi.vault.model.ProductRecord
+import com.mykiwi.vault.util.ShareLinkExtractor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -161,6 +162,19 @@ class LocalBridgeServer(
     ) {
         try {
             when {
+                method == "GET" && (path == "/" || path == "/index.html") -> {
+                    val html = appContext.assets.open("dashboard.html")
+                        .bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() }
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "text/html; charset=utf-8",
+                        html.toByteArray(Charsets.UTF_8)
+                    )
+                }
+
                 method == "GET" && path == "/api/health" -> {
                     val stats = db.getStats()
                     val res = JSONObject().apply {
@@ -172,6 +186,8 @@ class LocalBridgeServer(
                         put("totalProducts", stats.totalProducts)
                         put("queuedCount", stats.queuedCount)
                         put("processingCount", stats.processingCount)
+                        put("attentionCount", stats.attentionCount)
+                        put("lastAttentionReason", stats.lastAttentionReason ?: JSONObject.NULL)
                     }
                     writeJsonResponse(output, 200, res)
                 }
@@ -278,14 +294,61 @@ class LocalBridgeServer(
                     }
                 }
 
+                method == "DELETE" && path.matches(Regex("""^/api/products/\d+$""")) -> {
+                    val productId = path.substringAfterLast('/').toLong()
+                    val deleted = db.deleteProduct(appContext, productId)
+                    onEventCallback?.invoke("PRODUCT_DELETED", productId.toString())
+                    writeJsonResponse(output, 200, JSONObject().put("ok", deleted))
+                }
+
+                method == "POST" && path == "/api/queue/retry" -> {
+                    val count = db.retryAttentionJobs()
+                    broadcastWake(forceResume = true)
+                    onEventCallback?.invoke("QUEUE_RETRIED", count.toString())
+                    writeJsonResponse(output, 200, JSONObject().put("ok", true).put("retried", count))
+                }
+
+                method == "GET" && path == "/api/export.json" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val file = RawJsonStorage.buildCatalogJsonExport(appContext, all)
+                    val bytes = file.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "application/json; charset=utf-8",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_products.json\"")
+                    )
+                }
+
+                method == "GET" && path == "/api/export.csv" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val file = RawJsonStorage.buildCatalogCsvExport(appContext, all)
+                    val bytes = file.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "text/csv; charset=utf-8",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_products.csv\"")
+                    )
+                }
+
                 method == "POST" && path == "/api/enqueue" -> {
                     val payload = JSONObject(body)
-                    val url = payload.optString("url", "").trim()
-                    if (url.isEmpty()) {
-                        writeJsonResponse(output, 400, JSONObject().put("ok", false).put("error", "url wajib diisi"))
+                    val rawInput = payload.optString("url", "").trim()
+                    val extractedUrl = ShareLinkExtractor.extractFirstUrl(rawInput)
+                    if (extractedUrl == null) {
+                        writeJsonResponse(
+                            output,
+                            400,
+                            JSONObject().put("ok", false).put("error", "Link http/https produk tidak ditemukan")
+                        )
                     } else {
-                        val queueId = db.enqueueShare(url, url)
-                        onEventCallback?.invoke("ENQUEUE_REQUESTED", url)
+                        val queueId = db.enqueueShare(rawInput, extractedUrl)
+                        onEventCallback?.invoke("ENQUEUE_REQUESTED", extractedUrl)
                         writeJsonResponse(output, 200, JSONObject().put("ok", true).put("queueId", queueId))
                     }
                 }
@@ -434,7 +497,8 @@ class LocalBridgeServer(
         code: Int,
         statusText: String,
         contentType: String,
-        body: ByteArray
+        body: ByteArray,
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
         val headers = buildString {
             append("HTTP/1.1 ").append(code).append(' ').append(statusText).append("\r\n")
@@ -444,6 +508,9 @@ class LocalBridgeServer(
             append("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n")
             append("Access-Control-Allow-Headers: Content-Type, Authorization\r\n")
             append("Access-Control-Allow-Private-Network: true\r\n")
+            for ((k, v) in extraHeaders) {
+                append(k).append(": ").append(v).append("\r\n")
+            }
             append("Connection: close\r\n\r\n")
         }
         output.write(headers.toByteArray(Charsets.US_ASCII))

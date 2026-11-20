@@ -28,6 +28,13 @@ assert.ok(manifest.permissions.includes("browsingData"));
 assert.ok(manifest.permissions.includes("webRequestBlocking"));
 console.log("  ✓ manifest.json valid");
 
+// Check inline JS syntax inside android-bridge/app/src/main/assets/dashboard.html
+const dashHtml = fs.readFileSync("android-bridge/app/src/main/assets/dashboard.html", "utf8");
+const scriptMatch = dashHtml.match(/<script>([\s\S]*?)<\/script>/i);
+assert.ok(scriptMatch, "dashboard.html script tag not found");
+new Function(scriptMatch[1]);
+console.log("  ✓ dashboard.html inline script valid");
+
 console.log("=== 2. Test URL Extractor & Shopee Affiliate Link Formats ===");
 const shareText =
   "Temukan Kipas Angin Mini Portable Turbo dengan harga Rp45.000! Dapatkan di Shopee sekarang! https://s.shopee.co.id/7fKabc123.";

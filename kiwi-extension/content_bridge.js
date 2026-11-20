@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // Inject page_hook.js into MAIN world at document_start so Desktop Cloak & XHR listener run before Shopee scripts
+  // 1. Inject page_hook.js into MAIN world at document_start so Desktop Cloak & XHR listener run before Shopee scripts
   try {
     const script = document.createElement("script");
     script.src = chrome.runtime.getURL("page_hook.js");
@@ -12,21 +12,96 @@
     };
   } catch (_) {}
 
-  // Bantu tampilan halaman Login PC Shopee di layar HP agar kode QR langsung muat & mudah di-screenshot
-  try {
-    const host = (location.hostname || "").toLowerCase();
-    if (host.includes("shopee.") && location.pathname.indexOf("/buyer/login") === 0) {
-      document.addEventListener("DOMContentLoaded", function () {
-        let vp = document.querySelector('meta[name="viewport"]');
-        if (!vp) {
-          vp = document.createElement("meta");
-          vp.name = "viewport";
-          if (document.head) document.head.appendChild(vp);
+  // 2. Auto-Center & Pas di Layar HP khusus halaman /buyer/login dan /verify/ Shopee PC!
+  //    Header & navigator tetap PC Windows 132, tapi tampilan form Login / OTP / QR
+  //    diletakkan presisi 1:1 di tengah layar HP tanpa perlu geser ke kanan!
+  function applyMobileFriendlyDesktopLoginLayout() {
+    try {
+      const host = (location.hostname || "").toLowerCase();
+      const path = location.pathname || "";
+      if (
+        !host.includes("shopee.") ||
+        (path.indexOf("/buyer/login") !== 0 && path.indexOf("/verify/") !== 0)
+      ) {
+        return;
+      }
+
+      let vp = document.querySelector('meta[name="viewport"]');
+      if (!vp) {
+        vp = document.createElement("meta");
+        vp.name = "viewport";
+        (document.head || document.documentElement).appendChild(vp);
+      }
+      vp.content = "width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes";
+
+      if (!document.getElementById("shopvault-login-center-css")) {
+        const style = document.createElement("style");
+        style.id = "shopvault-login-center-css";
+        style.textContent = `
+          html, body, #main {
+            min-width: 0 !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            overflow-x: hidden !important;
+          }
+          /* Bungkus container 1200px bawaan Shopee PC agar responsif di layar HP */
+          header nav,
+          div[style*="width: 1040px"],
+          div[style*="width:1040px"],
+          div[style*="width: 1200px"],
+          div[style*="width:1200px"] {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100vw !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+            box-sizing: border-box !important;
+            justify-content: center !important;
+          }
+          /* Sembunyikan banner ilustrasi kiri pada layout PC agar kotak login langsung di tengah */
+          form {
+            margin-left: auto !important;
+            margin-right: auto !important;
+          }
+          main > div > div[style*="background-image"] {
+            background-image: none !important;
+            min-height: auto !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            padding: 12px !important;
+            box-sizing: border-box !important;
+          }
+          main > div > div > div:first-child:not(:only-child):not(:has(form)):not(:has(canvas)) {
+            display: none !important;
+          }
+        `;
+        (document.head || document.documentElement).appendChild(style);
+      }
+    } catch (_) {}
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyMobileFriendlyDesktopLoginLayout);
+  } else {
+    applyMobileFriendlyDesktopLoginLayout();
+  }
+  window.addEventListener("load", function () {
+    applyMobileFriendlyDesktopLoginLayout();
+    // Scroll halus ke elemen form / canvas QR jika ada
+    try {
+      const host = (location.hostname || "").toLowerCase();
+      if (host.includes("shopee.") && location.pathname.indexOf("/buyer/login") === 0) {
+        const targetEl = document.querySelector("form") || document.querySelector("canvas");
+        if (targetEl && typeof targetEl.scrollIntoView === "function") {
+          targetEl.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
         }
-        vp.content = "width=1200, initial-scale=0.32, user-scalable=yes";
-      });
-    }
-  } catch (_) {}
+      }
+    } catch (_) {}
+  });
 
   // Forward captured API responses from MAIN world to Extension Background
   window.addEventListener("message", function (event) {

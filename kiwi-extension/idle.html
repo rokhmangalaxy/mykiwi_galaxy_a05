@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShopVault Kiwi Worker</title>
+  <title>ShopVault Kiwi Worker v1.2</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -47,7 +47,7 @@
       margin: 2px 0 0;
     }
     .badge {
-      padding: 4px 10px;
+      padding: 5px 11px;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
@@ -55,6 +55,14 @@
       color: #fca5a5;
       border: 1px solid rgba(239, 68, 68, 0.4);
       white-space: nowrap;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .badge:hover {
+      filter: brightness(1.12);
     }
     .badge.ok {
       background: rgba(16, 185, 129, 0.16);
@@ -110,6 +118,19 @@
       color: #fff;
       width: 100%;
     }
+    textarea {
+      width: 100%;
+      min-height: 76px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #090e1a;
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 11.5px;
+      resize: vertical;
+    }
     .alert {
       background: rgba(245, 158, 11, 0.15);
       border: 1px solid rgba(245, 158, 11, 0.45);
@@ -121,7 +142,7 @@
       display: none;
     }
     .logs {
-      max-height: 200px;
+      max-height: 180px;
       overflow-y: auto;
       font-family: ui-monospace, monospace;
       font-size: 11.5px;
@@ -149,32 +170,53 @@
       color: #cbd5e1;
     }
     ol.steps li { margin-bottom: 4px; }
+    details summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: #5eead4;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div>
-      <h1 class="title">ShopVault Worker v1.1</h1>
-      <p class="subtitle">Full Desktop Cloak (Anti-Redirect Login Shopee)</p>
+      <h1 class="title">ShopVault Worker v1.2</h1>
+      <p class="subtitle">Form Login Tengah Layar + Import Cookie PC</p>
     </div>
-    <span id="connBadge" class="badge">Terputus</span>
+    <a id="connBadge" class="badge" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" title="Klik untuk membuka Dashboard Web ShopVault">
+      Terputus
+    </a>
   </div>
 
   <div id="pauseAlert" class="alert"></div>
 
-  <!-- Kartu Khusus Anti-Redirect Login Shopee -->
+  <!-- Kartu Login 1 HP (Auto-Center tanpa geser kanan!) -->
   <div class="card">
     <div style="font-size:13.5px;font-weight:700;margin-bottom:6px;">
-      🛡️ Anti-Redirect Login Shopee (Mode PC Windows 132)
+      🔑 Login Shopee Mode PC (Cukup 1 HP, Form Pas di Tengah!)
     </div>
     <button id="qrLoginBtn" class="teal">
-      🧹 Reset Cookie Shopee &amp; Buka Login QR (Mode PC)
+      🧹 Reset Cookie &amp; Buka Form Login (Tengah Layar)
     </button>
     <ol class="steps">
-      <li>Klik tombol di atas untuk menghapus cookie lama yang terlanjur dicap "Android" dan membuka kode QR versi PC.</li>
-      <li><strong>Screenshot</strong> kode QR yang tampil di layar.</li>
-      <li>Buka <strong>Aplikasi Shopee</strong> ➔ klik ikon <strong>Scan QR</strong> (kiri atas beranda) ➔ klik ikon <strong>Galeri</strong> (kanan atas) ➔ pilih screenshot tadi ➔ <strong>Konfirmasi Login</strong>.</li>
+      <li><strong>Jangan scan QR lewat Galeri/Screenshot di HP yang sama</strong> (Shopee memblokir scan QR dari Galeri demi anti-penipuan).</li>
+      <li>Saat halaman login terbuka (sekarang otomatis <strong>rapi di tengah layar HP</strong>), langsung login memakai <strong>No. HP / Username + Password</strong> (verifikasi via link/OTP WhatsApp) atau <strong>Google</strong>.</li>
+      <li>Jika ingin pakai QR, arahkan <strong>kamera langsung</strong> dari HP/layar lain ke kotak QR yang sudah di tengah layar.</li>
     </ol>
+
+    <details style="margin-top:10px;">
+      <summary>📋 Opsi Alternatif: Import / Backup Cookie Shopee dari Laptop/PC</summary>
+      <p class="hint" style="margin:6px 0 4px;">
+        Jika kamu sudah login Shopee di browser Laptop/PC, ekspor cookie (JSON dari ekstensi <em>Cookie-Editor</em> atau teks header <code>Cookie: SPC_EC=...</code>), tempel di bawah lalu klik <strong>Pasang Cookie</strong>:
+      </p>
+      <textarea id="cookieInput" placeholder='Tempel JSON Cookie-Editor [...] atau SPC_EC=...; SPC_ST=...'></textarea>
+      <div class="btn-row">
+        <button id="importCookieBtn" class="primary">Pasang Cookie</button>
+        <button id="exportCookieBtn">Salin Backup Cookie Saat Ini</button>
+      </div>
+      <div id="cookieFeedback" class="hint" style="margin-top:6px;"></div>
+    </details>
   </div>
 
   <div class="card">
@@ -196,12 +238,15 @@
 
     <label class="switch">
       <input type="checkbox" id="cdpToggle" checked />
-      <span>Gunakan CDP <code>Network.getResponseBody</code> + Emulasi Layar PC <code>1366x768</code></span>
+      <span>Gunakan CDP <code>Network.getResponseBody</code> saat sadap produk</span>
     </label>
 
     <div class="btn-row">
       <button id="resumeBtn" class="primary">Lanjutkan Antrean</button>
       <button id="reconnectBtn">Sambung Ulang Bridge</button>
+      <a id="openDashboardBtn" class="badge ok" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" style="border-radius:8px;padding:9px 12px;">
+        🌐 Buka Dashboard Produk
+      </a>
     </div>
   </div>
 
