@@ -36,8 +36,8 @@ object ShareLinkExtractor {
             return null
         }
 
-        // 1. Check nested redirect query parameters (ulp, url, redirect, target, dl_target_url)
-        for (param in listOf("ulp", "url", "redirect", "target", "dl_target_url", "path")) {
+        // 1. Check nested redirect query parameters (origin_link, ulp, next, url, redirect, target)
+        for (param in listOf("origin_link", "ulp", "next", "url", "redirect", "target", "dl_target_url", "path")) {
             val nested = try {
                 uri.getQueryParameter(param)
             } catch (_: Exception) {
@@ -185,7 +185,10 @@ object ShareLinkExtractor {
                 itemId = finalIds.second
             )
         } else {
-            val safeTarget = if (currentUrl.startsWith("http", ignoreCase = true)) {
+            val lowerCurrent = currentUrl.lowercase()
+            val isLoginOrVerifyTrap = lowerCurrent.contains("/buyer/login") ||
+                lowerCurrent.contains("/verify/")
+            val safeTarget = if (currentUrl.startsWith("http", ignoreCase = true) && !isLoginOrVerifyTrap) {
                 currentUrl
             } else {
                 originalUrl

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  // Inject page_hook.js into MAIN world at document_start so Shopee's own XHR/fetch responses are mirrored
+  // Inject page_hook.js into MAIN world at document_start so Desktop Cloak & XHR listener run before Shopee scripts
   try {
     const script = document.createElement("script");
     script.src = chrome.runtime.getURL("page_hook.js");
@@ -10,6 +10,22 @@
     script.onload = function () {
       script.remove();
     };
+  } catch (_) {}
+
+  // Bantu tampilan halaman Login PC Shopee di layar HP agar kode QR langsung muat & mudah di-screenshot
+  try {
+    const host = (location.hostname || "").toLowerCase();
+    if (host.includes("shopee.") && location.pathname.indexOf("/buyer/login") === 0) {
+      document.addEventListener("DOMContentLoaded", function () {
+        let vp = document.querySelector('meta[name="viewport"]');
+        if (!vp) {
+          vp = document.createElement("meta");
+          vp.name = "viewport";
+          if (document.head) document.head.appendChild(vp);
+        }
+        vp.content = "width=1200, initial-scale=0.32, user-scalable=yes";
+      });
+    }
   } catch (_) {}
 
   // Forward captured API responses from MAIN world to Extension Background

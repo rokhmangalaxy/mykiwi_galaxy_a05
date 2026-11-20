@@ -2,8 +2,8 @@
   "manifest_version": 2,
   "name": "ShopVault Kiwi Worker",
   "short_name": "ShopVault Worker",
-  "version": "1.0.0",
-  "description": "Background worker di Kiwi Browser Dev untuk menyadap response body produk Shopee & web lalu menyimpannya ke aplikasi ShopVault (com.mykiwi.vault).",
+  "version": "1.1.0",
+  "description": "Background worker + Full Desktop Cloak di Kiwi Browser Dev untuk menyadap response body produk Shopee & web ke ShopVault (com.mykiwi.vault).",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -28,6 +28,8 @@
     "tabs",
     "debugger",
     "storage",
+    "cookies",
+    "browsingData",
     "webRequest",
     "webRequestBlocking",
     "<all_urls>"

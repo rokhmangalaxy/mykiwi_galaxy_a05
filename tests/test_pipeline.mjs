@@ -23,6 +23,8 @@ const manifest = JSON.parse(fs.readFileSync("kiwi-extension/manifest.json", "utf
 assert.equal(manifest.manifest_version, 2);
 assert.equal(manifest.background.persistent, true);
 assert.ok(manifest.permissions.includes("debugger"));
+assert.ok(manifest.permissions.includes("cookies"));
+assert.ok(manifest.permissions.includes("browsingData"));
 assert.ok(manifest.permissions.includes("webRequestBlocking"));
 console.log("  ✓ manifest.json valid");
 
@@ -39,6 +41,8 @@ const cases = [
   "https://shopee.co.id/opaanlp/382368918/8835294847?__mobile__=1",
   "https://shopee.co.id/Kipas-Angin-Mini-Portable-i.382368918.8835294847?sp_atk=123",
   "https://shopee.co.id/universal-link?ulp=https%3A%2F%2Fshopee.co.id%2FKipas-i.382368918.8835294847",
+  "https://s.shopee.co.id/an_redir?origin_link=https%3A%2F%2Fshopee.co.id%2Fproduct%2F382368918%2F8835294847",
+  "https://shopee.co.id/buyer/login?next=https%3A%2F%2Fshopee.co.id%2Fproduct%2F382368918%2F8835294847",
   "https://shopee.co.id/api/v4/pdp/get_pc?shop_id=382368918&item_id=8835294847",
 ];
 

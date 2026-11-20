@@ -40,8 +40,16 @@
     const host = parsed.hostname.toLowerCase();
     const path = parsed.pathname || "";
 
-    // 1. Nested redirect params (ulp, redirect, url, target)
-    for (const key of ["ulp", "url", "redirect", "target", "dl_target_url"]) {
+    // 1. Nested redirect params (ulp, origin_link, next, redirect, url, target)
+    for (const key of [
+      "origin_link",
+      "ulp",
+      "next",
+      "url",
+      "redirect",
+      "target",
+      "dl_target_url",
+    ]) {
       const nested = parsed.searchParams.get(key);
       if (nested) {
         try {

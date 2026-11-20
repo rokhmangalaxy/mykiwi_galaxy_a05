@@ -3,6 +3,152 @@
   if (window.__SHOPVAULT_HOOK_INSTALLED__) return;
   window.__SHOPVAULT_HOOK_INSTALLED__ = true;
 
+  const DESKTOP_UA =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
+  const DESKTOP_APP_VERSION =
+    "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
+
+  function isShopeeHost(hostname) {
+    const h = (hostname || "").toLowerCase();
+    return (
+      h.includes("shopee.") ||
+      h.endsWith("shp.ee") ||
+      h.endsWith("shope.ee")
+    );
+  }
+
+  // =========================================================================
+  // 1. Full Windows 10 + Chrome 132 Desktop Cloak (khusus domain Shopee)
+  //    Menyamakan navigator, userAgentData Client Hints, screen 1366x768,
+  //    touch points = 0, dan media query pointer/hover agar tidak mental login!
+  // =========================================================================
+  function installShopeeDesktopCloak() {
+    try {
+      const navProto = Object.getPrototypeOf(navigator) || Navigator.prototype;
+
+      function defineGetter(target, prop, getterFn) {
+        try {
+          Object.defineProperty(target, prop, {
+            get: getterFn,
+            configurable: true,
+            enumerable: true,
+          });
+        } catch (_) {}
+      }
+
+      const brands = Object.freeze([
+        Object.freeze({ brand: "Not A(Brand", version: "8" }),
+        Object.freeze({ brand: "Chromium", version: "132" }),
+        Object.freeze({ brand: "Google Chrome", version: "132" }),
+      ]);
+
+      const fullVersionList = Object.freeze([
+        Object.freeze({ brand: "Not A(Brand", version: "8.0.0.0" }),
+        Object.freeze({ brand: "Chromium", version: "132.0.6834.110" }),
+        Object.freeze({ brand: "Google Chrome", version: "132.0.6834.110" }),
+      ]);
+
+      const highEntropySource = {
+        architecture: "x86",
+        bitness: "64",
+        brands: brands,
+        fullVersionList: fullVersionList,
+        mobile: false,
+        model: "",
+        platform: "Windows",
+        platformVersion: "15.0.0",
+        uaFullVersion: "132.0.6834.110",
+        wow64: false,
+        formFactors: ["Desktop"],
+      };
+
+      const fakeUserAgentData = Object.freeze({
+        brands: brands,
+        mobile: false,
+        platform: "Windows",
+        getHighEntropyValues: function (hints) {
+          const out = {
+            brands: brands,
+            mobile: false,
+            platform: "Windows",
+          };
+          if (Array.isArray(hints)) {
+            for (const k of hints) {
+              if (Object.prototype.hasOwnProperty.call(highEntropySource, k)) {
+                out[k] = highEntropySource[k];
+              }
+            }
+          }
+          return Promise.resolve(out);
+        },
+        toJSON: function () {
+          return {
+            brands: brands,
+            mobile: false,
+            platform: "Windows",
+          };
+        },
+      });
+
+      defineGetter(navProto, "userAgent", () => DESKTOP_UA);
+      defineGetter(navProto, "appVersion", () => DESKTOP_APP_VERSION);
+      defineGetter(navProto, "platform", () => "Win32");
+      defineGetter(navProto, "vendor", () => "Google Inc.");
+      defineGetter(navProto, "maxTouchPoints", () => 0);
+      defineGetter(navProto, "userAgentData", () => fakeUserAgentData);
+      defineGetter(navProto, "hardwareConcurrency", () => 8);
+      defineGetter(navProto, "deviceMemory", () => 8);
+
+      // Screen Desktop 1366x768
+      const scrProto = Object.getPrototypeOf(window.screen) || Screen.prototype;
+      defineGetter(scrProto, "width", () => 1366);
+      defineGetter(scrProto, "height", () => 768);
+      defineGetter(scrProto, "availWidth", () => 1366);
+      defineGetter(scrProto, "availHeight", () => 728);
+      defineGetter(scrProto, "colorDepth", () => 24);
+      defineGetter(scrProto, "pixelDepth", () => 24);
+      if (window.screen && window.screen.orientation) {
+        const oriProto = Object.getPrototypeOf(window.screen.orientation);
+        if (oriProto) {
+          defineGetter(oriProto, "type", () => "landscape-primary");
+          defineGetter(oriProto, "angle", () => 0);
+        }
+      }
+
+      // Desktop pointer/hover media queries so Shopee router chooses PC layout instead of Mobile Web
+      const origMatchMedia = window.matchMedia;
+      if (typeof origMatchMedia === "function") {
+        window.matchMedia = function (query) {
+          const q = String(query || "").toLowerCase().replace(/\s+/g, "");
+          const mql = origMatchMedia.call(window, query);
+          let overrideMatches = null;
+          if (q === "(pointer:coarse)" || q === "(any-pointer:coarse)" || q === "(hover:none)" || q === "(any-hover:none)") {
+            overrideMatches = false;
+          } else if (q === "(pointer:fine)" || q === "(any-pointer:fine)" || q === "(hover:hover)" || q === "(any-hover:hover)") {
+            overrideMatches = true;
+          }
+          if (overrideMatches !== null) {
+            return new Proxy(mql, {
+              get(target, prop) {
+                if (prop === "matches") return overrideMatches;
+                const val = target[prop];
+                return typeof val === "function" ? val.bind(target) : val;
+              },
+            });
+          }
+          return mql;
+        };
+      }
+    } catch (_) {}
+  }
+
+  if (isShopeeHost(location.hostname)) {
+    installShopeeDesktopCloak();
+  }
+
+  // =========================================================================
+  // 2. Passive Response Body Interceptor (Fetch + XHR)
+  // =========================================================================
   const TARGET_API_PATTERNS = [
     "/api/v4/pdp/get_pc",
     "/api/v4/pdp/get_rw",
@@ -37,7 +183,6 @@
     );
   }
 
-  // 1. Passive Fetch response clone listener (does NOT alter headers or request behavior)
   const origFetch = window.fetch;
   if (typeof origFetch === "function") {
     window.fetch = function (...args) {
@@ -52,9 +197,12 @@
         p.then((res) => {
           try {
             const cloned = res.clone();
-            cloned.text().then((txt) => {
-              emitCapturedResponse(res.url || reqUrl, res.status, txt, "fetch");
-            }).catch(() => {});
+            cloned
+              .text()
+              .then((txt) => {
+                emitCapturedResponse(res.url || reqUrl, res.status, txt, "fetch");
+              })
+              .catch(() => {});
           } catch (_) {}
         }).catch(() => {});
       }
@@ -62,7 +210,6 @@
     };
   }
 
-  // 2. Passive XMLHttpRequest listener (Shopee anti-fraud SDK uses XHR for PDP APIs)
   const OrigXHR = window.XMLHttpRequest;
   if (OrigXHR && OrigXHR.prototype) {
     const origOpen = OrigXHR.prototype.open;

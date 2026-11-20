@@ -6,9 +6,11 @@
   const workerState = document.getElementById("workerState");
   const pauseAlert = document.getElementById("pauseAlert");
   const logBox = document.getElementById("logBox");
+  const qrLoginBtn = document.getElementById("qrLoginBtn");
   const resumeBtn = document.getElementById("resumeBtn");
   const reconnectBtn = document.getElementById("reconnectBtn");
   const cdpToggle = document.getElementById("cdpToggle");
+  const cloakToggle = document.getElementById("cloakToggle");
 
   function render(st) {
     if (!st) return;
@@ -22,11 +24,12 @@
 
     capturedCount.textContent = String(st.capturedCount || 0);
     cdpToggle.checked = st.useCdpDebugger !== false;
+    cloakToggle.checked = st.fullDesktopCloak !== false;
 
     if (st.paused) {
       workerState.textContent = "Dijeda";
       pauseAlert.style.display = "block";
-      pauseAlert.textContent = `⚠️ Antrean dijeda: ${st.pauseReason || "Periksa login Shopee lalu klik Lanjutkan Antrean."}`;
+      pauseAlert.textContent = `⚠️ Antrean dijeda: ${st.pauseReason || "Gunakan tombol Reset Cookie & Buka Login QR (Mode PC) di bawah."}`;
     } else if (st.processingJob) {
       workerState.textContent = `Memproses #${st.processingJob.id}`;
       pauseAlert.style.display = "none";
@@ -58,23 +61,46 @@
     });
   }
 
+  qrLoginBtn.addEventListener("click", function () {
+    qrLoginBtn.disabled = true;
+    qrLoginBtn.textContent = "⏳ Menyiapkan sesi PC & membuka QR...";
+    chrome.runtime.sendMessage({ type: "RESET_SHOPEE_SESSION_AND_OPEN_QR" }, function (res) {
+      qrLoginBtn.disabled = false;
+      qrLoginBtn.textContent = "🧹 Reset Cookie Shopee & Buka Login QR (Mode PC)";
+      if (!chrome.runtime.lastError && res) {
+        render(res);
+      }
+    });
+  });
+
   resumeBtn.addEventListener("click", function () {
     chrome.runtime.sendMessage({ type: "RESUME_QUEUE" }, render);
   });
 
   reconnectBtn.addEventListener("click", function () {
     chrome.runtime.sendMessage(
-      { type: "RECONNECT_BRIDGE", useCdpDebugger: cdpToggle.checked },
+      {
+        type: "RECONNECT_BRIDGE",
+        useCdpDebugger: cdpToggle.checked,
+        fullDesktopCloak: cloakToggle.checked,
+      },
       render
     );
   });
 
-  cdpToggle.addEventListener("change", function () {
+  function saveSettings() {
     chrome.runtime.sendMessage(
-      { type: "RECONNECT_BRIDGE", useCdpDebugger: cdpToggle.checked },
+      {
+        type: "UPDATE_SETTINGS",
+        useCdpDebugger: cdpToggle.checked,
+        fullDesktopCloak: cloakToggle.checked,
+      },
       render
     );
-  });
+  }
+
+  cdpToggle.addEventListener("change", saveSettings);
+  cloakToggle.addEventListener("change", saveSettings);
 
   chrome.runtime.onMessage.addListener(function (msg) {
     if (msg && msg.type === "WORKER_STATE_UPDATE") {

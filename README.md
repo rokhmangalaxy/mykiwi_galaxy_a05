@@ -36,10 +36,14 @@ Setiap kode di-*push* ke GitHub, buka tab **Actions ➔ Build ShopVault APK & Ki
 * `ShopVault-com.mykiwi.vault-debug.apk`
 * `shopvault-kiwi-extension.zip`
 
-### 2. Pasang Kiwi Browser Dev & Ekstensi Worker
+### 2. Pasang Kiwi Browser Dev & Login QR Mode PC (Anti-Redirect Login)
 1. Pastikan **Kiwi Browser Dev** (`com.kiwibrowser.browser.dev` arsitektur `arm64`) dari rilis resmi `kiwibrowser/src.next` sudah terpasang.
-2. Buka **Kiwi Browser Dev**, masuk ke menu **⋮ ➔ Extensions**, aktifkan **Developer mode**, klik **+ (from .zip/.crx/.user.js)**, lalu pilih file `shopvault-kiwi-extension.zip`.
-3. Login ke akun `https://shopee.co.id` di Kiwi Browser Dev **sekali saja**, dan biarkan 1 tab `ShopVault Worker` tetap ada di Kiwi Dev.
+2. Buka **Kiwi Browser Dev**, masuk ke menu **⋮ ➔ Extensions**, aktifkan **Developer mode** (hapus ekstensi versi lama jika ada), klik **+ (from .zip/.crx/.user.js)**, lalu pilih file `shopvault-kiwi-extension.zip`.
+3. Buka tab **`ShopVault Worker v1.1`**, lalu klik tombol hijau **"🧹 Reset Cookie Shopee & Buka Login QR (Mode PC)"**:
+   * Ekstensi otomatis membersihkan sisa cookie "Android" lama dan menyamarkan seluruh tab Shopee sebagai **Windows 10 + Chrome 132** (`Sec-CH-UA-Mobile: ?0`, `Sec-CH-UA-Platform: "Windows"`, `Sec-CH-UA-Model: ""`, `navigator.platform = "Win32"`, layar `1366x768`).
+   * **Screenshot** kode QR login PC yang muncul di layar Kiwi Dev.
+   * Buka **Aplikasi Shopee** di HP ➔ ketuk ikon **Scan QR** (kiri atas beranda) ➔ ketuk ikon **Galeri** (pojok kanan atas) ➔ pilih screenshot QR tadi ➔ ketuk **Konfirmasi Login**.
+4. Biarkan 1 tab `ShopVault Worker` tetap ada di Kiwi Dev.
 
 ### 3. Pasang Aplikasi **ShopVault** & Atur Baterai One UI
 1. Install `ShopVault-com.mykiwi.vault-debug.apk` lalu buka **ShopVault** (pastikan indikator di kanan atas berubah menjadi **`Kiwi: Terhubung`**).
