@@ -35,6 +35,13 @@ assert.ok(scriptMatch, "dashboard.html script tag not found");
 new Function(scriptMatch[1]);
 console.log("  ✓ dashboard.html inline script valid");
 
+// Check inline SYNC_MAIN_WORLD_SCRIPT inside kiwi-extension/content_bridge.js
+const cbSrc = fs.readFileSync("kiwi-extension/content_bridge.js", "utf8");
+const syncMatch = cbSrc.match(/const SYNC_MAIN_WORLD_SCRIPT = `([\s\S]*?)`;/);
+assert.ok(syncMatch, "SYNC_MAIN_WORLD_SCRIPT not found in content_bridge.js");
+new Function(syncMatch[1].replace(/\\\\/g, "\\"));
+console.log("  ✓ content_bridge.js inline MAIN-world script valid");
+
 console.log("=== 2. Test URL Extractor & Shopee Affiliate Link Formats ===");
 const shareText =
   "Temukan Kipas Angin Mini Portable Turbo dengan harga Rp45.000! Dapatkan di Shopee sekarang! https://s.shopee.co.id/7fKabc123.";
@@ -61,7 +68,20 @@ for (const u of cases) {
     domain: "shopee.co.id",
   });
 }
-console.log(`  ✓ Semua ${cases.length} pola URL Shopee berhasil diekstrak`);
+assert.equal(ShopeeParser.isShortShopeeUrl("https://id.shp.ee/7xAbCdEf"), true);
+assert.equal(
+  ShopeeParser.cleanShopeeTargetUrl(
+    "https://shopee.co.id/universal-link/ankerindonesia/23156929148?deep_and_deferred=1&is_logged_in=false"
+  ),
+  "https://shopee.co.id/ankerindonesia/23156929148"
+);
+assert.equal(
+  ShopeeParser.extractLoginNextUrl(
+    "https://shopee.co.id/buyer/login?next=https%3A%2F%2Fshopee.co.id%2Fankerindonesia%2F23156929148%3Fsp_atk%3D1"
+  ),
+  "https://shopee.co.id/ankerindonesia/23156929148"
+);
+console.log(`  ✓ Semua ${cases.length} pola URL numerik + pola /username/itemId & id.shp.ee berhasil diekstrak`);
 
 console.log("=== 3. Test Parser Response Body Shopee (/api/v4/pdp/get_pc) ===");
 const mockPdpResponse = {
@@ -185,7 +205,20 @@ const block903 = ShopeeParser.detectBlockedOrLoginState(
 );
 assert.equal(block903.blocked, true);
 assert.equal(block903.status, "RATE_LIMITED");
-console.log("  ✓ Deteksi anti-bot 90309999 & login redirect bekerja");
+
+const nonFalsePositive = ShopeeParser.detectBlockedOrLoginState(
+  "https://shopee.co.id/universal-link/product/1/2?is_logged_in=false",
+  null
+);
+assert.equal(nonFalsePositive.blocked, false);
+
+const trueLoginPath = ShopeeParser.detectBlockedOrLoginState(
+  "https://shopee.co.id/buyer/login?next=https%3A%2F%2Fshopee.co.id%2Fproduct%2F1%2F2",
+  null
+);
+assert.equal(trueLoginPath.blocked, true);
+assert.equal(trueLoginPath.status, "NEED_LOGIN");
+console.log("  ✓ Deteksi anti-bot 90309999 & filter anti-false-positive NEED_LOGIN bekerja");
 
 console.log("=== 4. Validasi Seluruh XML Android & Struktur Kotlin ===");
 execFileSync(

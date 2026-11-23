@@ -3,6 +3,13 @@
 
   const connBadge = document.getElementById("connBadge");
   const openDashboardBtn = document.getElementById("openDashboardBtn");
+  const shopeeSessionBox = document.getElementById("shopeeSessionBox");
+  const shopeeSessionTitle = document.getElementById("shopeeSessionTitle");
+  const shopeeSessionDesc = document.getElementById("shopeeSessionDesc");
+  const openShopeeBtn = document.getElementById("openShopeeBtn");
+  const checkAuthBtn = document.getElementById("checkAuthBtn");
+  const waLinkInput = document.getElementById("waLinkInput");
+  const openWaLinkBtn = document.getElementById("openWaLinkBtn");
   const capturedCount = document.getElementById("capturedCount");
   const workerState = document.getElementById("workerState");
   const pauseAlert = document.getElementById("pauseAlert");
@@ -31,14 +38,31 @@
       connBadge.className = "badge";
     }
 
+    const auth = st.shopeeAuth || {};
+    if (auth.loggedIn) {
+      shopeeSessionBox.className = "session-banner ok";
+      shopeeSessionTitle.textContent = `✅ Sesi Shopee di Kiwi: AKTIF${
+        auth.userId ? " (UID: " + auth.userId + ")" : ""
+      }`;
+      shopeeSessionDesc.textContent =
+        "Cookie sesi SPC_EC aktif di Kiwi Dev. Silakan langsung Share produk dari aplikasi Shopee!";
+    } else {
+      shopeeSessionBox.className = "session-banner";
+      shopeeSessionTitle.textContent = "⚠️ Sesi Shopee di Kiwi: BELUM AKTIF";
+      shopeeSessionDesc.textContent =
+        "Cookie SPC_EC belum masuk ke Kiwi Dev. Jika baru klik Setujui lewat Link WhatsApp, ketuk 'Buka / Cek Tab Shopee' di bawah agar tab Login selesai masuk ke Beranda.";
+    }
+
     capturedCount.textContent = String(st.capturedCount || 0);
-    cdpToggle.checked = st.useCdpDebugger !== false;
+    cdpToggle.checked = st.useCdpDebugger === true;
     cloakToggle.checked = st.fullDesktopCloak !== false;
 
     if (st.paused) {
       workerState.textContent = "Dijeda";
       pauseAlert.style.display = "block";
-      pauseAlert.textContent = `⚠️ Antrean dijeda: ${st.pauseReason || "Silakan login Shopee di Kiwi Dev lalu klik Lanjutkan Antrean."}`;
+      pauseAlert.textContent = `⚠️ Antrean dijeda: ${
+        st.pauseReason || "Pastikan Sesi Shopee AKTIF (Hijau) lalu klik Lanjutkan Antrean."
+      }`;
     } else if (st.processingJob) {
       workerState.textContent = `Memproses #${st.processingJob.id}`;
       pauseAlert.style.display = "none";
@@ -70,12 +94,38 @@
     });
   }
 
+  openShopeeBtn.addEventListener("click", function () {
+    chrome.runtime.sendMessage({ type: "OPEN_SHOPEE_HOME" }, function (res) {
+      if (!chrome.runtime.lastError && res) render(res);
+    });
+  });
+
+  checkAuthBtn.addEventListener("click", function () {
+    checkAuthBtn.disabled = true;
+    chrome.runtime.sendMessage({ type: "CHECK_SHOPEE_AUTH" }, function (res) {
+      checkAuthBtn.disabled = false;
+      if (!chrome.runtime.lastError && res) render(res);
+    });
+  });
+
+  openWaLinkBtn.addEventListener("click", function () {
+    const raw = (waLinkInput.value || "").trim();
+    const match = raw.match(/https?:\/\/[^\s<>"')\]}]+/i);
+    if (!match) {
+      alert("Tempel teks atau link http/https dari pesan WhatsApp Shopee terlebih dahulu.");
+      return;
+    }
+    const url = match[0].replace(/[.,;!?]+$/, "");
+    waLinkInput.value = "";
+    chrome.tabs.create({ url, active: true });
+  });
+
   qrLoginBtn.addEventListener("click", function () {
     qrLoginBtn.disabled = true;
-    qrLoginBtn.textContent = "⏳ Menyiapkan form login tengah layar...";
+    qrLoginBtn.textContent = "⏳ Menyiapkan form login baru...";
     chrome.runtime.sendMessage({ type: "RESET_SHOPEE_SESSION_AND_OPEN_QR" }, function (res) {
       qrLoginBtn.disabled = false;
-      qrLoginBtn.textContent = "🧹 Reset Cookie & Buka Form Login (Tengah Layar)";
+      qrLoginBtn.textContent = "🧹 Reset Cookie & Buka Form Login Baru";
       if (!chrome.runtime.lastError && res) {
         render(res);
       }
@@ -148,6 +198,10 @@
     if (msg && msg.type === "WORKER_STATE_UPDATE") {
       render(msg.state);
     }
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) refresh();
   });
 
   refresh();

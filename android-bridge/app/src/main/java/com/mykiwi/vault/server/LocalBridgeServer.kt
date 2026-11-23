@@ -33,6 +33,12 @@ class LocalBridgeServer(
     private var running = false
     private var serverSocket: ServerSocket? = null
 
+    @Volatile
+    private var kiwiShopeeLoggedIn: Boolean = false
+
+    @Volatile
+    private var kiwiShopeeUserId: String? = null
+
     fun start() {
         if (running) return
         running = true
@@ -182,6 +188,8 @@ class LocalBridgeServer(
                         put("app", "ShopVault")
                         put("package", appContext.packageName)
                         put("kiwiConnected", wsClients.size > 0)
+                        put("kiwiShopeeLoggedIn", wsClients.size > 0 && kiwiShopeeLoggedIn)
+                        put("kiwiShopeeUserId", if (wsClients.size > 0 && kiwiShopeeUserId != null) kiwiShopeeUserId else JSONObject.NULL)
                         put("wsClients", wsClients.size)
                         put("totalProducts", stats.totalProducts)
                         put("queuedCount", stats.queuedCount)
@@ -469,6 +477,10 @@ class LocalBridgeServer(
     private fun handleWsMessage(session: WsSession, text: String) {
         try {
             val msg = JSONObject(text)
+            if (msg.has("shopeeLoggedIn")) {
+                kiwiShopeeLoggedIn = msg.optBoolean("shopeeLoggedIn", false)
+                kiwiShopeeUserId = if (msg.isNull("shopeeUserId")) null else msg.optString("shopeeUserId", "").ifBlank { null }
+            }
             if (msg.optString("type") == "ping") {
                 session.sendText(JSONObject().put("type", "pong").put("ts", System.currentTimeMillis()).toString())
             }

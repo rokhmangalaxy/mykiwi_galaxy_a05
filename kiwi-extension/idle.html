@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShopVault Kiwi Worker v1.2</title>
+  <title>ShopVault Kiwi Worker v1.2.1</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -76,6 +76,25 @@
       padding: 14px;
       margin-bottom: 12px;
     }
+    .session-banner {
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      font-size: 12.5px;
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      background: rgba(239, 68, 68, 0.14);
+      color: #fecaca;
+    }
+    .session-banner.ok {
+      border-color: rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.15);
+      color: #a7f3d0;
+    }
+    .session-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
     .stats {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -118,9 +137,8 @@
       color: #fff;
       width: 100%;
     }
-    textarea {
+    textarea, input.text-in {
       width: 100%;
-      min-height: 76px;
       margin-top: 8px;
       padding: 8px 10px;
       border-radius: 8px;
@@ -129,6 +147,9 @@
       color: var(--text);
       font-family: ui-monospace, monospace;
       font-size: 11.5px;
+    }
+    textarea {
+      min-height: 76px;
       resize: vertical;
     }
     .alert {
@@ -142,7 +163,7 @@
       display: none;
     }
     .logs {
-      max-height: 180px;
+      max-height: 190px;
       overflow-y: auto;
       font-family: ui-monospace, monospace;
       font-size: 11.5px;
@@ -169,7 +190,7 @@
       font-size: 12px;
       color: #cbd5e1;
     }
-    ol.steps li { margin-bottom: 4px; }
+    ol.steps li { margin-bottom: 5px; }
     details summary {
       cursor: pointer;
       font-size: 13px;
@@ -181,8 +202,8 @@
 <body>
   <div class="header">
     <div>
-      <h1 class="title">ShopVault Worker v1.2</h1>
-      <p class="subtitle">Form Login Tengah Layar + Import Cookie PC</p>
+      <h1 class="title">ShopVault Worker v1.2.1</h1>
+      <p class="subtitle">Detektor Cookie Shopee + Anti-Mental WhatsApp Login</p>
     </div>
     <a id="connBadge" class="badge" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" title="Klik untuk membuka Dashboard Web ShopVault">
       Terputus
@@ -191,24 +212,35 @@
 
   <div id="pauseAlert" class="alert"></div>
 
-  <!-- Kartu Login 1 HP (Auto-Center tanpa geser kanan!) -->
   <div class="card">
-    <div style="font-size:13.5px;font-weight:700;margin-bottom:6px;">
-      🔑 Login Shopee Mode PC (Cukup 1 HP, Form Pas di Tengah!)
+    <div id="shopeeSessionBox" class="session-banner">
+      <div id="shopeeSessionTitle" class="session-title">⏳ Mengecek cookie sesi Shopee di Kiwi...</div>
+      <div id="shopeeSessionDesc">Memeriksa cookie SPC_EC / SPC_U...</div>
     </div>
+
+    <div class="btn-row" style="margin-top:0;margin-bottom:10px;">
+      <button id="openShopeeBtn" class="primary">🏠 Buka / Cek Tab Shopee</button>
+      <button id="checkAuthBtn">🔄 Cek Ulang Sesi</button>
+    </div>
+
     <button id="qrLoginBtn" class="teal">
-      🧹 Reset Cookie &amp; Buka Form Login (Tengah Layar)
+      🧹 Reset Cookie &amp; Buka Form Login Baru
     </button>
+
     <ol class="steps">
-      <li><strong>Jangan scan QR lewat Galeri/Screenshot di HP yang sama</strong> (Shopee memblokir scan QR dari Galeri demi anti-penipuan).</li>
-      <li>Saat halaman login terbuka (sekarang otomatis <strong>rapi di tengah layar HP</strong>), langsung login memakai <strong>No. HP / Username + Password</strong> (verifikasi via link/OTP WhatsApp) atau <strong>Google</strong>.</li>
-      <li>Jika ingin pakai QR, arahkan <strong>kamera langsung</strong> dari HP/layar lain ke kotak QR yang sudah di tengah layar.</li>
+      <li><strong>PENTING jika Login pakai Link WhatsApp:</strong> Setelah klik <em>Setujui / Konfirmasi</em> di WA atau aplikasi Shopee, <strong>wajib buka kembali Kiwi Browser Dev selama 3 detik</strong> sampai tab Login berubah masuk ke Beranda Shopee &amp; kotak status di atas berubah menjadi <strong>HIJAU (AKTIF)</strong>!</li>
+      <li>Jika link dari WhatsApp malah terbuka di Chrome (bukan Shopee/Kiwi), <strong>salin (Copy) link dari WhatsApp</strong> lalu tempel di bawah agar terbuka langsung di Kiwi:</li>
     </ol>
 
+    <div class="btn-row" style="margin-top:6px;">
+      <input id="waLinkInput" class="text-in" style="margin-top:0;flex:1;min-width:180px;" placeholder="Tempel link verifikasi dari WhatsApp di sini..." />
+      <button id="openWaLinkBtn">Buka di Kiwi</button>
+    </div>
+
     <details style="margin-top:10px;">
-      <summary>📋 Opsi Alternatif: Import / Backup Cookie Shopee dari Laptop/PC</summary>
+      <summary>📋 Opsi Alternatif: Import / Backup Cookie Shopee</summary>
       <p class="hint" style="margin:6px 0 4px;">
-        Jika kamu sudah login Shopee di browser Laptop/PC, ekspor cookie (JSON dari ekstensi <em>Cookie-Editor</em> atau teks header <code>Cookie: SPC_EC=...</code>), tempel di bawah lalu klik <strong>Pasang Cookie</strong>:
+        Tempel JSON <em>Cookie-Editor</em> atau teks header <code>Cookie: SPC_EC=...</code> lalu klik <strong>Pasang Cookie</strong>:
       </p>
       <textarea id="cookieInput" placeholder='Tempel JSON Cookie-Editor [...] atau SPC_EC=...; SPC_ST=...'></textarea>
       <div class="btn-row">
@@ -237,12 +269,12 @@
     </label>
 
     <label class="switch">
-      <input type="checkbox" id="cdpToggle" checked />
-      <span>Gunakan CDP <code>Network.getResponseBody</code> saat sadap produk</span>
+      <input type="checkbox" id="cdpToggle" />
+      <span>Gunakan CDP Debugger tambahan <em>(opsional, biarkan mati agar sesi login WA tidak mental)</em></span>
     </label>
 
     <div class="btn-row">
-      <button id="resumeBtn" class="primary">Lanjutkan Antrean</button>
+      <button id="resumeBtn" class="primary">▶️ Lanjutkan &amp; Ulangi Antrean</button>
       <button id="reconnectBtn">Sambung Ulang Bridge</button>
       <a id="openDashboardBtn" class="badge ok" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" style="border-radius:8px;padding:9px 12px;">
         🌐 Buka Dashboard Produk

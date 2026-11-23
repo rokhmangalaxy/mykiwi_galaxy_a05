@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "ShopVault Kiwi Worker",
   "short_name": "ShopVault Worker",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Background worker + Full Desktop Cloak di Kiwi Browser Dev untuk menyadap response body produk Shopee & web ke ShopVault (com.mykiwi.vault).",
   "icons": {
     "16": "icons/icon16.png",

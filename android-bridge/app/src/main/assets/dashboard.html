@@ -326,8 +326,15 @@
           const d = await r.json();
           if (!d || !d.ok) return;
           if (d.kiwiConnected) {
-            kiwiPill.textContent = "Kiwi Worker: Terhubung";
-            kiwiPill.className = "pill ok";
+            if (d.kiwiShopeeLoggedIn) {
+              kiwiPill.textContent =
+                "Kiwi Terhubung • Shopee AKTIF" +
+                (d.kiwiShopeeUserId ? " (" + d.kiwiShopeeUserId + ")" : "");
+              kiwiPill.className = "pill ok";
+            } else {
+              kiwiPill.textContent = "Kiwi Terhubung • Shopee Belum Login";
+              kiwiPill.className = "pill warn";
+            }
           } else {
             kiwiPill.textContent = "Kiwi Worker: Menunggu";
             kiwiPill.className = "pill warn";
