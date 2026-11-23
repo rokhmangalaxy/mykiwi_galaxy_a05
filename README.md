@@ -36,13 +36,13 @@ Setiap kode di-*push* ke GitHub, buka tab **Actions ➔ Build ShopVault APK & Ki
 * `ShopVault-com.mykiwi.vault-debug.apk`
 * `shopvault-kiwi-extension.zip`
 
-### 2. Pasang Kiwi Browser Dev & Login QR Mode PC (Anti-Redirect Login)
+### 2. Pasang Kiwi Browser Dev & Login Mode PC (Form Tengah Layar / Import Cookie)
 1. Pastikan **Kiwi Browser Dev** (`com.kiwibrowser.browser.dev` arsitektur `arm64`) dari rilis resmi `kiwibrowser/src.next` sudah terpasang.
 2. Buka **Kiwi Browser Dev**, masuk ke menu **⋮ ➔ Extensions**, aktifkan **Developer mode** (hapus ekstensi versi lama jika ada), klik **+ (from .zip/.crx/.user.js)**, lalu pilih file `shopvault-kiwi-extension.zip`.
-3. Buka tab **`ShopVault Worker v1.1`**, lalu klik tombol hijau **"🧹 Reset Cookie Shopee & Buka Login QR (Mode PC)"**:
-   * Ekstensi otomatis membersihkan sisa cookie "Android" lama dan menyamarkan seluruh tab Shopee sebagai **Windows 10 + Chrome 132** (`Sec-CH-UA-Mobile: ?0`, `Sec-CH-UA-Platform: "Windows"`, `Sec-CH-UA-Model: ""`, `navigator.platform = "Win32"`, layar `1366x768`).
-   * **Screenshot** kode QR login PC yang muncul di layar Kiwi Dev.
-   * Buka **Aplikasi Shopee** di HP ➔ ketuk ikon **Scan QR** (kiri atas beranda) ➔ ketuk ikon **Galeri** (pojok kanan atas) ➔ pilih screenshot QR tadi ➔ ketuk **Konfirmasi Login**.
+3. Buka tab **`ShopVault Worker v1.2`**, lalu klik tombol hijau **"🧹 Reset Cookie & Buka Form Login (Tengah Layar)"**:
+   * Ekstensi otomatis membersihkan sisa cookie "Android" lama, menyamarkan identitas ke **Windows 10 + Chrome 132**, dan **merapikan kotak login tepat di tengah layar HP** (tanpa perlu geser kanan-kiri).
+   * **Login cukup 1 HP:** Gunakan **No. HP / Username + Password** (verifikasi link/OTP WhatsApp atau SMS) atau **Lanjutkan dengan Google**.
+   * *(Catatan: Jangan scan QR lewat tombol "Galeri/Screenshot" di HP yang sama karena aplikasi Shopee memblokir scan QR dari Galeri demi anti-penipuan/quishing. Jika ingin scan QR, wajib diarahkan pakai kamera langsung dari layar perangkat kedua, atau gunakan fitur **Import Cookie Shopee** di dalam tab Worker).*
 4. Biarkan 1 tab `ShopVault Worker` tetap ada di Kiwi Dev.
 
 ### 3. Pasang Aplikasi **ShopVault** & Atur Baterai One UI
@@ -60,8 +60,12 @@ Saat `ShopVault` berjalan, server lokal aktif di `http://127.0.0.1:8765`:
 
 | Endpoint | Metode | Fungsi |
 | :--- | :--- | :--- |
+| `/` | `GET` | **Dashboard Web ShopVault** (katalog produk, pencarian, video MP4, foto HD, & unduh JSON/CSV) |
 | `/api/health` | `GET` | Cek status koneksi Kiwi Dev & ringkasan jumlah antrean/produk |
 | `/api/products?q=...` | `GET` | Ambil daftar produk tersimpan (beserta link video `.mp4`, foto HD, varian, link affiliate) |
-| `/api/products/{id}` | `GET` | Ambil detail lengkap 1 produk |
+| `/api/products/{id}` | `GET` / `DELETE` | Ambil detail lengkap atau hapus 1 produk |
 | `/api/products/{id}/raw` | `GET` | Ambil mentahan *response body* asli dari API Shopee |
+| `/api/export.json` | `GET` | Unduh seluruh produk tersimpan dalam format `.json` |
+| `/api/export.csv` | `GET` | Unduh ringkasan seluruh produk dalam format tabel `.csv` |
 | `/api/enqueue` | `POST` | Masukkan URL produk baru ke antrean dari aplikasi/skrip lain (`{"url": "..."}`) |
+| `/api/queue/retry` | `POST` | Ulangi antrean yang sempat tertunda |

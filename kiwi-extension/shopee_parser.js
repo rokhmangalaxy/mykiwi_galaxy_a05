@@ -10,6 +10,32 @@
   const PRICE_DIVISOR = 100000;
   const SHOPEE_IMG_BASE = "https://down-id.img.susercontent.com/file/";
 
+  const RESERVED_FIRST_SEGMENTS = new Set([
+    "product",
+    "universal-link",
+    "opaanlp",
+    "buyer",
+    "verify",
+    "api",
+    "search",
+    "cart",
+    "checkout",
+    "user",
+    "m",
+    "mall",
+    "flash_sale",
+    "campaigns",
+    "daily_discover",
+    "portal",
+    "seller",
+    "edu",
+    "help",
+    "legaldoc",
+    "blog",
+    "events",
+    "an_redir",
+  ]);
+
   function extractFirstUrl(rawText) {
     if (!rawText || typeof rawText !== "string") return null;
     const match = rawText.match(/https?:\/\/[^\s<>"')\]}]+/i);
@@ -18,17 +44,17 @@
   }
 
   /**
-   * Ekstrak shop_id dan item_id dari berbagai format URL Shopee:
+   * Ekstrak shop_id dan item_id numerik dari berbagai format URL Shopee:
    * - https://shopee.co.id/product/12345/67890
    * - https://shopee.co.id/universal-link/product/12345/67890
    * - https://shopee.co.id/opaanlp/12345/67890
    * - https://shopee.co.id/Nama-Produk-i.12345.67890
    * - ?shop_id=12345&item_id=67890 / ?shopid=12345&itemid=67890
-   * - Nested encoded param ?ulp=https%3A%2F%2Fshopee.co.id%2F...
+   * - Nested encoded param ?ulp=..., ?origin_link=..., ?next=...
    */
   function extractShopeeIds(urlStr, depth) {
     const currentDepth = depth || 0;
-    if (!urlStr || currentDepth > 3) return null;
+    if (!urlStr || currentDepth > 4) return null;
 
     let parsed;
     try {
@@ -49,6 +75,7 @@
       "redirect",
       "target",
       "dl_target_url",
+      "path",
     ]) {
       const nested = parsed.searchParams.get(key);
       if (nested) {
@@ -75,12 +102,14 @@
     }
 
     // 4. Slug -i.{shopId}.{itemId}
-    m = path.match(/-i\.(\d+)\.(\d+)(?:$|[/?#])/i) || path.match(/\/i\.(\d+)\.(\d+)(?:$|[/?#])/i);
+    m =
+      path.match(/-i\.(\d+)\.(\d+)(?:$|[/?#])/i) ||
+      path.match(/\/i\.(\d+)\.(\d+)(?:$|[/?#])/i);
     if (m) {
       return { shopId: m[1], itemId: m[2], domain: normalizeShopeeDomain(host) };
     }
 
-    // 5. /{shopUsername}/{itemId} on shopee domain (2 numeric or username + numeric id >= 6 digits)
+    // 5. Query params ?shop_id=...&item_id=...
     if (isShopeeDomain(host)) {
       const itemParam = parsed.searchParams.get("item_id") || parsed.searchParams.get("itemid");
       const shopParam = parsed.searchParams.get("shop_id") || parsed.searchParams.get("shopid");
@@ -92,14 +121,130 @@
     return null;
   }
 
+  /**
+   * Ekstrak format URL toko username + item_id:
+   * - https://shopee.co.id/ankerindonesia/23156929148
+   * - https://shopee.co.id/universal-link/ankerindonesia/23156929148?...
+   */
+  function extractShopeeUsernameItem(urlStr, depth) {
+    const currentDepth = depth || 0;
+    if (!urlStr || currentDepth > 4) return null;
+
+    let parsed;
+    try {
+      parsed = new URL(urlStr);
+    } catch (_) {
+      return null;
+    }
+
+    for (const key of ["origin_link", "ulp", "next", "url", "redirect", "target", "dl_target_url"]) {
+      const nested = parsed.searchParams.get(key);
+      if (nested) {
+        try {
+          const decoded = decodeURIComponent(nested);
+          const found = extractShopeeUsernameItem(decoded, currentDepth + 1);
+          if (found) return found;
+        } catch (_) {}
+      }
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    if (!isShopeeDomain(host) || isShortShopeeUrl(urlStr)) return null;
+
+    let cleanPath = (parsed.pathname || "").replace(/^\/universal-link(?=\/)/i, "");
+    const parts = cleanPath.split("/").filter(Boolean);
+    if (parts.length === 2) {
+      const shopSlug = parts[0];
+      const itemId = parts[1];
+      if (
+        !RESERVED_FIRST_SEGMENTS.has(shopSlug.toLowerCase()) &&
+        /^[a-z0-9_.-]{2,64}$/i.test(shopSlug) &&
+        /^\d{6,}$/.test(itemId)
+      ) {
+        return {
+          shopUsername: shopSlug,
+          itemId: itemId,
+          domain: normalizeShopeeDomain(host),
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Bersihkan URL Shopee dari wrapper /universal-link/, /opaanlp/, an_redir, atau parameter pelacak
+   * yang sering memicu mental ke aplikasi / halaman login palsu.
+   */
+  function cleanShopeeTargetUrl(urlStr) {
+    if (!urlStr || typeof urlStr !== "string") return urlStr;
+
+    const ids = extractShopeeIds(urlStr);
+    if (ids && ids.shopId && ids.itemId) {
+      return buildCleanProductUrl(ids.shopId, ids.itemId, ids.domain);
+    }
+
+    const userItem = extractShopeeUsernameItem(urlStr);
+    if (userItem && userItem.shopUsername && userItem.itemId) {
+      return `https://${userItem.domain}/${userItem.shopUsername}/${userItem.itemId}`;
+    }
+
+    try {
+      const parsed = new URL(urlStr);
+      // Buka parameter origin_link / ulp pada an_redir atau universal-link
+      for (const key of ["origin_link", "ulp", "dl_target_url"]) {
+        const nested = parsed.searchParams.get(key);
+        if (nested && /^https?:\/\//i.test(nested)) {
+          return cleanShopeeTargetUrl(nested);
+        }
+      }
+      if (
+        isShopeeDomain(parsed.hostname) &&
+        !isShortShopeeUrl(urlStr) &&
+        parsed.pathname.toLowerCase().startsWith("/universal-link/")
+      ) {
+        const strippedPath = parsed.pathname.replace(/^\/universal-link/i, "") || "/";
+        if (!strippedPath.toLowerCase().startsWith("/buyer/login")) {
+          return `https://${normalizeShopeeDomain(parsed.hostname)}${strippedPath}`;
+        }
+      }
+    } catch (_) {}
+
+    return urlStr;
+  }
+
+  /**
+   * Jika Shopee melempar ke /buyer/login?next=..., ambil URL produk tujuan dari parameter next
+   */
+  function extractLoginNextUrl(loginUrl) {
+    if (!loginUrl) return null;
+    try {
+      const parsed = new URL(loginUrl);
+      const nextRaw =
+        parsed.searchParams.get("next") ||
+        parsed.searchParams.get("redirect") ||
+        parsed.searchParams.get("origin_link");
+      if (!nextRaw) return null;
+      const decoded = decodeURIComponent(nextRaw);
+      if (!/^https?:\/\//i.test(decoded)) return null;
+      const cleaned = cleanShopeeTargetUrl(decoded);
+      const p2 = new URL(cleaned);
+      if (
+        p2.pathname.toLowerCase().startsWith("/buyer/login") ||
+        p2.pathname.toLowerCase().startsWith("/buyer/signin") ||
+        p2.pathname === "/"
+      ) {
+        return null;
+      }
+      return cleaned;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function isShopeeDomain(host) {
     if (!host) return false;
     const h = host.toLowerCase();
-    return (
-      h.includes("shopee.") ||
-      h.endsWith("shp.ee") ||
-      h.endsWith("shope.ee")
-    );
+    return h.includes("shopee.") || h.endsWith("shp.ee") || h.endsWith("shope.ee");
   }
 
   function isShortShopeeUrl(urlStr) {
@@ -107,8 +252,10 @@
       const h = new URL(urlStr).hostname.toLowerCase();
       return (
         h.startsWith("s.shopee.") ||
-        h.endsWith("shp.ee") ||
-        h.endsWith("shope.ee")
+        h === "shp.ee" ||
+        h.endsWith(".shp.ee") ||
+        h === "shope.ee" ||
+        h.endsWith(".shope.ee")
       );
     } catch (_) {
       return false;
@@ -132,7 +279,6 @@
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) return null;
     if (n === 0) return 0;
-    // Shopee API stores prices as integer * 100000
     return Math.round(n / PRICE_DIVISOR);
   }
 
@@ -186,16 +332,6 @@
     return { videoUrl: null, coverUrl: null, durationSec: null };
   }
 
-  function isShopeeProductApiUrl(urlStr) {
-    if (!urlStr) return false;
-    return (
-      urlStr.includes("/api/v4/pdp/get_pc") ||
-      urlStr.includes("/api/v4/pdp/get_rw") ||
-      urlStr.includes("/api/v4/item/get?") ||
-      urlStr.includes("/api/v2/item/get?")
-    );
-  }
-
   function isShopeeRatingsApiUrl(urlStr) {
     if (!urlStr) return false;
     return (
@@ -204,13 +340,39 @@
     );
   }
 
+  function isShopeeProductApiUrl(urlStr) {
+    if (!urlStr || isShopeeRatingsApiUrl(urlStr)) return false;
+    return (
+      urlStr.includes("/api/v4/pdp/get_pc") ||
+      urlStr.includes("/api/v4/pdp/get_rw") ||
+      urlStr.includes("/api/v4/item/get") ||
+      urlStr.includes("/api/v2/item/get")
+    );
+  }
+
   function detectBlockedOrLoginState(currentUrl, bodyObj) {
-    const u = (currentUrl || "").toLowerCase();
-    if (u.includes("/buyer/login") || u.includes("is_logged_in=false")) {
-      return { blocked: true, status: "NEED_LOGIN", reason: "Sesi Shopee di Kiwi Dev belum login / habis." };
+    let pathname = "";
+    try {
+      pathname = new URL(currentUrl || "").pathname.toLowerCase();
+    } catch (_) {
+      pathname = String(currentUrl || "").toLowerCase();
     }
-    if (u.includes("/verify/captcha") || u.includes("/verify/traffic")) {
-      return { blocked: true, status: "CAPTCHA", reason: "Shopee meminta verifikasi captcha/traffic di Kiwi Dev." };
+
+    // Hanya anggap halaman login jika benar-benar berada di path /buyer/login atau /buyer/signin
+    // (bukan query param pelacak seperti ?is_logged_in=false pada universal-link)
+    if (pathname.startsWith("/buyer/login") || pathname.startsWith("/buyer/signin")) {
+      return {
+        blocked: true,
+        status: "NEED_LOGIN",
+        reason: "Sesi Shopee di Kiwi Dev belum login / habis.",
+      };
+    }
+    if (pathname.startsWith("/verify/captcha") || pathname.startsWith("/verify/traffic")) {
+      return {
+        blocked: true,
+        status: "CAPTCHA",
+        reason: "Shopee meminta verifikasi captcha/traffic di Kiwi Dev.",
+      };
     }
     if (bodyObj && typeof bodyObj === "object") {
       const errCode = bodyObj.error;
@@ -218,7 +380,15 @@
         return {
           blocked: true,
           status: "RATE_LIMITED",
-          reason: "Shopee mengembalikan kode anti-bot 90309999 (perlu login di Kiwi Dev atau jeda beberapa menit).",
+          reason:
+            "Shopee mengembalikan kode anti-bot 90309999 (cek sesi login Shopee di Kiwi Dev atau jeda beberapa menit).",
+        };
+      }
+      if (bodyObj.is_login === false && errCode && errCode !== 0) {
+        return {
+          blocked: true,
+          status: "NEED_LOGIN",
+          reason: `API Shopee meminta login aktif di Kiwi Dev (kode ${errCode}).`,
         };
       }
     }
@@ -242,7 +412,6 @@
     }
 
     const data = bodyObj.data || {};
-    // Support both pdp/get_pc (data.item) and item/get (data directly has itemid/name)
     const item = data.item || (data.itemid || data.item_id ? data : null);
     if (!item) {
       throw new Error("Field data.item tidak ditemukan pada response Shopee");
@@ -282,7 +451,6 @@
       );
     }
 
-    // Images (preserve all unique HD image URLs)
     const rawImages = []
       .concat(Array.isArray(pi.images) ? pi.images : [])
       .concat(Array.isArray(item.images) ? item.images : [])
@@ -293,7 +461,6 @@
       if (full) imageSet.add(full);
     }
 
-    // Tier variations & variant images
     const tiers = [];
     for (const t of item.tier_variations || []) {
       if (!t) continue;
@@ -308,7 +475,6 @@
       });
     }
 
-    // Models / SKU variants
     const variants = [];
     let computedTotalStock = 0;
     let hasNumericModelStock = false;
@@ -363,7 +529,9 @@
 
     const domain =
       (meta && meta.domain) ||
-      (meta && meta.pageUrl ? normalizeShopeeDomain(new URL(meta.pageUrl).hostname) : "shopee.co.id");
+      (meta && meta.pageUrl
+        ? normalizeShopeeDomain(new URL(meta.pageUrl).hostname)
+        : "shopee.co.id");
 
     const cleanUrl =
       shopId && itemId
@@ -406,9 +574,6 @@
     };
   }
 
-  /**
-   * Parse ulasan teratas dari /api/v4/item/get_ratings untuk bahan riset konten Shopee Video
-   */
   function parseShopeeRatingsJson(rawBody) {
     try {
       const obj = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
@@ -432,18 +597,12 @@
     }
   }
 
-  /**
-   * Fallback parser untuk web umum (Tokopedia, Lazada, TikTok Shop, web toko lain)
-   * dari ld+json / OpenGraph meta yang dikirim content_bridge.js
-   */
   function parseGenericPageMetadata(pageMeta, jobMeta) {
     const cleanUrl = (pageMeta && pageMeta.url) || (jobMeta && jobMeta.cleanUrl) || "";
     let host = "web";
     try {
       host = new URL(cleanUrl).hostname.replace(/^www\./i, "");
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
 
     const ld = (pageMeta && pageMeta.ldProduct) || {};
     const offers = Array.isArray(ld.offers) ? ld.offers[0] || {} : ld.offers || {};
@@ -509,6 +668,9 @@
     PRICE_DIVISOR,
     extractFirstUrl,
     extractShopeeIds,
+    extractShopeeUsernameItem,
+    cleanShopeeTargetUrl,
+    extractLoginNextUrl,
     isShopeeDomain,
     isShortShopeeUrl,
     normalizeShopeeDomain,

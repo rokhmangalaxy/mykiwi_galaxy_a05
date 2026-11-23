@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ShopVault Kiwi Worker</title>
+  <title>ShopVault Kiwi Worker v1.3.0</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -47,7 +47,7 @@
       margin: 2px 0 0;
     }
     .badge {
-      padding: 4px 10px;
+      padding: 5px 11px;
       border-radius: 999px;
       font-size: 12px;
       font-weight: 600;
@@ -55,6 +55,14 @@
       color: #fca5a5;
       border: 1px solid rgba(239, 68, 68, 0.4);
       white-space: nowrap;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .badge:hover {
+      filter: brightness(1.12);
     }
     .badge.ok {
       background: rgba(16, 185, 129, 0.16);
@@ -67,6 +75,25 @@
       border-radius: 12px;
       padding: 14px;
       margin-bottom: 12px;
+    }
+    .session-banner {
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      font-size: 12.5px;
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      background: rgba(239, 68, 68, 0.14);
+      color: #fecaca;
+    }
+    .session-banner.ok {
+      border-color: rgba(16, 185, 129, 0.45);
+      background: rgba(16, 185, 129, 0.15);
+      color: #a7f3d0;
+    }
+    .session-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 2px;
     }
     .stats {
       display: grid;
@@ -110,6 +137,21 @@
       color: #fff;
       width: 100%;
     }
+    textarea, input.text-in {
+      width: 100%;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #090e1a;
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 11.5px;
+    }
+    textarea {
+      min-height: 76px;
+      resize: vertical;
+    }
     .alert {
       background: rgba(245, 158, 11, 0.15);
       border: 1px solid rgba(245, 158, 11, 0.45);
@@ -121,7 +163,7 @@
       display: none;
     }
     .logs {
-      max-height: 200px;
+      max-height: 190px;
       overflow-y: auto;
       font-family: ui-monospace, monospace;
       font-size: 11.5px;
@@ -148,33 +190,65 @@
       font-size: 12px;
       color: #cbd5e1;
     }
-    ol.steps li { margin-bottom: 4px; }
+    ol.steps li { margin-bottom: 5px; }
+    details summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: #5eead4;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div>
-      <h1 class="title">ShopVault Worker v1.1</h1>
-      <p class="subtitle">Full Desktop Cloak (Anti-Redirect Login Shopee)</p>
+      <h1 class="title">ShopVault Worker v1.3.0</h1>
+      <p class="subtitle">Auto-Close Tab Produk + Raw JSON 100% Murni</p>
     </div>
-    <span id="connBadge" class="badge">Terputus</span>
+    <a id="connBadge" class="badge" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" title="Klik untuk membuka Dashboard Web ShopVault">
+      Terputus
+    </a>
   </div>
 
   <div id="pauseAlert" class="alert"></div>
 
-  <!-- Kartu Khusus Anti-Redirect Login Shopee -->
   <div class="card">
-    <div style="font-size:13.5px;font-weight:700;margin-bottom:6px;">
-      🛡️ Anti-Redirect Login Shopee (Mode PC Windows 132)
+    <div id="shopeeSessionBox" class="session-banner">
+      <div id="shopeeSessionTitle" class="session-title">⏳ Mengecek cookie sesi Shopee di Kiwi...</div>
+      <div id="shopeeSessionDesc">Memeriksa cookie SPC_EC / SPC_U...</div>
     </div>
+
+    <div class="btn-row" style="margin-top:0;margin-bottom:10px;">
+      <button id="openShopeeBtn" class="primary">🏠 Buka / Cek Tab Shopee</button>
+      <button id="checkAuthBtn">🔄 Cek Ulang Sesi</button>
+    </div>
+
     <button id="qrLoginBtn" class="teal">
-      🧹 Reset Cookie Shopee &amp; Buka Login QR (Mode PC)
+      🧹 Reset Cookie &amp; Buka Form Login Baru
     </button>
+
     <ol class="steps">
-      <li>Klik tombol di atas untuk menghapus cookie lama yang terlanjur dicap "Android" dan membuka kode QR versi PC.</li>
-      <li><strong>Screenshot</strong> kode QR yang tampil di layar.</li>
-      <li>Buka <strong>Aplikasi Shopee</strong> ➔ klik ikon <strong>Scan QR</strong> (kiri atas beranda) ➔ klik ikon <strong>Galeri</strong> (kanan atas) ➔ pilih screenshot tadi ➔ <strong>Konfirmasi Login</strong>.</li>
+      <li><strong>PENTING jika Login pakai Link WhatsApp:</strong> Setelah klik <em>Setujui / Konfirmasi</em> di WA atau aplikasi Shopee, <strong>wajib buka kembali Kiwi Browser Dev selama 3 detik</strong> sampai tab Login berubah masuk ke Beranda Shopee &amp; kotak status di atas berubah menjadi <strong>HIJAU (AKTIF)</strong>!</li>
+      <li>Jika link dari WhatsApp malah terbuka di Chrome (bukan Shopee/Kiwi), <strong>salin (Copy) link dari WhatsApp</strong> lalu tempel di bawah agar terbuka langsung di Kiwi:</li>
     </ol>
+
+    <div class="btn-row" style="margin-top:6px;">
+      <input id="waLinkInput" class="text-in" style="margin-top:0;flex:1;min-width:180px;" placeholder="Tempel link verifikasi dari WhatsApp di sini..." />
+      <button id="openWaLinkBtn">Buka di Kiwi</button>
+    </div>
+
+    <details style="margin-top:10px;">
+      <summary>📋 Opsi Alternatif: Import / Backup Cookie Shopee</summary>
+      <p class="hint" style="margin:6px 0 4px;">
+        Tempel JSON <em>Cookie-Editor</em> atau teks header <code>Cookie: SPC_EC=...</code> lalu klik <strong>Pasang Cookie</strong>:
+      </p>
+      <textarea id="cookieInput" placeholder='Tempel JSON Cookie-Editor [...] atau SPC_EC=...; SPC_ST=...'></textarea>
+      <div class="btn-row">
+        <button id="importCookieBtn" class="primary">Pasang Cookie</button>
+        <button id="exportCookieBtn">Salin Backup Cookie Saat Ini</button>
+      </div>
+      <div id="cookieFeedback" class="hint" style="margin-top:6px;"></div>
+    </details>
   </div>
 
   <div class="card">
@@ -190,18 +264,26 @@
     </div>
 
     <label class="switch">
+      <input type="checkbox" id="autoCloseToggle" checked />
+      <span><strong>Auto-Close Tab Shopee</strong> begitu Raw JSON didapat <em>(mencegah verifikasi login ulang)</em></span>
+    </label>
+
+    <label class="switch">
       <input type="checkbox" id="cloakToggle" checked />
       <span>Samarkan penuh semua tab Shopee sebagai <strong>Windows 10 + Chrome 132</strong> (<code>Sec-CH-UA-Mobile: ?0</code>, <code>Win32</code>)</span>
     </label>
 
     <label class="switch">
-      <input type="checkbox" id="cdpToggle" checked />
-      <span>Gunakan CDP <code>Network.getResponseBody</code> + Emulasi Layar PC <code>1366x768</code></span>
+      <input type="checkbox" id="cdpToggle" />
+      <span>Gunakan CDP Debugger tambahan <em>(opsional, biarkan mati agar sesi login WA tidak mental)</em></span>
     </label>
 
     <div class="btn-row">
-      <button id="resumeBtn" class="primary">Lanjutkan Antrean</button>
+      <button id="resumeBtn" class="primary">▶️ Lanjutkan &amp; Ulangi Antrean</button>
       <button id="reconnectBtn">Sambung Ulang Bridge</button>
+      <a id="openDashboardBtn" class="badge ok" href="http://127.0.0.1:8765/" target="_blank" rel="noopener" style="border-radius:8px;padding:9px 12px;">
+        🌐 Buka Dashboard Produk
+      </a>
     </div>
   </div>
 

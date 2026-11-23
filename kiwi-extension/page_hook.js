@@ -10,18 +10,9 @@
 
   function isShopeeHost(hostname) {
     const h = (hostname || "").toLowerCase();
-    return (
-      h.includes("shopee.") ||
-      h.endsWith("shp.ee") ||
-      h.endsWith("shope.ee")
-    );
+    return h.includes("shopee.") || h.endsWith("shp.ee") || h.endsWith("shope.ee");
   }
 
-  // =========================================================================
-  // 1. Full Windows 10 + Chrome 132 Desktop Cloak (khusus domain Shopee)
-  //    Menyamakan navigator, userAgentData Client Hints, screen 1366x768,
-  //    touch points = 0, dan media query pointer/hover agar tidak mental login!
-  // =========================================================================
   function installShopeeDesktopCloak() {
     try {
       const navProto = Object.getPrototypeOf(navigator) || Navigator.prototype;
@@ -99,7 +90,6 @@
       defineGetter(navProto, "hardwareConcurrency", () => 8);
       defineGetter(navProto, "deviceMemory", () => 8);
 
-      // Screen Desktop 1366x768
       const scrProto = Object.getPrototypeOf(window.screen) || Screen.prototype;
       defineGetter(scrProto, "width", () => 1366);
       defineGetter(scrProto, "height", () => 768);
@@ -115,16 +105,39 @@
         }
       }
 
-      // Desktop pointer/hover media queries so Shopee router chooses PC layout instead of Mobile Web
+      // Jaga agar tab Login (polling link WhatsApp) & Worker tab di background
+      // tetap dianggap aktif/visible oleh SPA Shopee saat pengguna berpindah ke WA/Shopee App!
+      const docProto = Object.getPrototypeOf(document) || Document.prototype;
+      defineGetter(docProto, "hidden", () => false);
+      defineGetter(docProto, "webkitHidden", () => false);
+      defineGetter(docProto, "visibilityState", () => "visible");
+      document.addEventListener(
+        "visibilitychange",
+        function (ev) {
+          ev.stopImmediatePropagation();
+        },
+        true
+      );
+
       const origMatchMedia = window.matchMedia;
       if (typeof origMatchMedia === "function") {
         window.matchMedia = function (query) {
           const q = String(query || "").toLowerCase().replace(/\s+/g, "");
           const mql = origMatchMedia.call(window, query);
           let overrideMatches = null;
-          if (q === "(pointer:coarse)" || q === "(any-pointer:coarse)" || q === "(hover:none)" || q === "(any-hover:none)") {
+          if (
+            q === "(pointer:coarse)" ||
+            q === "(any-pointer:coarse)" ||
+            q === "(hover:none)" ||
+            q === "(any-hover:none)"
+          ) {
             overrideMatches = false;
-          } else if (q === "(pointer:fine)" || q === "(any-pointer:fine)" || q === "(hover:hover)" || q === "(any-hover:hover)") {
+          } else if (
+            q === "(pointer:fine)" ||
+            q === "(any-pointer:fine)" ||
+            q === "(hover:hover)" ||
+            q === "(any-hover:hover)"
+          ) {
             overrideMatches = true;
           }
           if (overrideMatches !== null) {
@@ -146,9 +159,6 @@
     installShopeeDesktopCloak();
   }
 
-  // =========================================================================
-  // 2. Passive Response Body Interceptor (Fetch + XHR)
-  // =========================================================================
   const TARGET_API_PATTERNS = [
     "/api/v4/pdp/get_pc",
     "/api/v4/pdp/get_rw",
@@ -249,11 +259,13 @@
     };
   }
 
-  // 3. Block JS-initiated deep-link schemes (shopeeid://, intent://) from stealing focus
   const origOpenWindow = window.open;
   if (typeof origOpenWindow === "function") {
     window.open = function (url, ...rest) {
-      if (typeof url === "string" && /^(intent|shopeeid|market|lazada|tokopedia):\/\//i.test(url)) {
+      if (
+        typeof url === "string" &&
+        /^(intent|shopeeid|market|lazada|tokopedia):\/\//i.test(url)
+      ) {
         return null;
       }
       return origOpenWindow.call(this, url, ...rest);

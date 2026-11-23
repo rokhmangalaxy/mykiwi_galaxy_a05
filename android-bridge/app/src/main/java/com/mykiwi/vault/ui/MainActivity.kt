@@ -29,6 +29,7 @@ import com.mykiwi.vault.R
 import com.mykiwi.vault.data.RawJsonStorage
 import com.mykiwi.vault.data.VaultDatabase
 import com.mykiwi.vault.service.VaultBridgeService
+import com.mykiwi.vault.util.KiwiLauncher
 import com.mykiwi.vault.util.ShareLinkExtractor
 import java.io.File
 import java.util.concurrent.Executors
@@ -142,7 +143,8 @@ class MainActivity : AppCompatActivity() {
 
         btnRetryFailed.setOnClickListener {
             VaultBridgeService.startOrWake(this, VaultBridgeService.ACTION_RETRY_ATTENTION)
-            Toast.makeText(this, "Mengulangi antrean yang tertunda...", Toast.LENGTH_SHORT).show()
+            KiwiLauncher.launchKiwiForCapture(this)
+            Toast.makeText(this, "Membuka Kiwi Dev untuk mengulangi antrean...", Toast.LENGTH_SHORT).show()
         }
 
         etSearch.addTextChangedListener(object : TextWatcher {
@@ -193,12 +195,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openKiwiBrowser() {
-        val launchIntent = packageManager.getLaunchIntentForPackage("com.kiwibrowser.browser.dev")
-            ?: packageManager.getLaunchIntentForPackage("com.kiwibrowser.browser")
-
-        if (launchIntent != null) {
-            startActivity(launchIntent)
-        } else {
+        if (!KiwiLauncher.launchKiwiForCapture(this)) {
             Toast.makeText(
                 this,
                 "Kiwi Browser Dev (com.kiwibrowser.browser.dev) belum terpasang",
@@ -215,7 +212,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Tambah Link Produk")
             .setView(input)
-            .setPositiveButton("Masukkan Antrean") { _, _ ->
+            .setPositiveButton("Ambil Raw JSON") { _, _ ->
                 val raw = input.text?.toString()?.trim().orEmpty()
                 val url = ShareLinkExtractor.extractFirstUrl(raw)
                 if (url == null) {
@@ -225,7 +222,12 @@ class MainActivity : AppCompatActivity() {
                         db.enqueueShare(raw, url)
                         VaultBridgeService.startOrWake(this, VaultBridgeService.ACTION_WAKE_QUEUE)
                         runOnUiThread {
-                            Toast.makeText(this, "📥 Link masuk antrean", Toast.LENGTH_SHORT).show()
+                            KiwiLauncher.launchKiwiForCapture(this)
+                            Toast.makeText(
+                                this,
+                                "⚡ Membuka Kiwi Dev untuk ambil Raw JSON (auto-close)...",
+                                Toast.LENGTH_SHORT
+                            ).show()
                             refreshDashboard()
                         }
                     }
@@ -237,8 +239,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showExportChooserDialog() {
         val options = arrayOf(
-            "Ekspor Semua Produk (.json) ke Aplikasi Lain",
-            "Ekspor Tabel Ringkasan (.csv) ke Aplikasi Lain"
+            "Ekspor Semua File Raw JSON Asli (.zip — Murni Tanpa Edit)",
+            "Ekspor Katalog Ringkasan (.json)",
+            "Ekspor Tabel Ringkasan (.csv)"
         )
         AlertDialog.Builder(this)
             .setTitle("Kirim / Ekspor Data Produk")
@@ -253,12 +256,19 @@ class MainActivity : AppCompatActivity() {
                     }
                     val file: File
                     val mime: String
-                    if (which == 0) {
-                        file = RawJsonStorage.buildCatalogJsonExport(this, all)
-                        mime = "application/json"
-                    } else {
-                        file = RawJsonStorage.buildCatalogCsvExport(this, all)
-                        mime = "text/csv"
+                    when (which) {
+                        0 -> {
+                            file = RawJsonStorage.buildRawJsonZipExport(this, all)
+                            mime = "application/zip"
+                        }
+                        1 -> {
+                            file = RawJsonStorage.buildCatalogJsonExport(this, all)
+                            mime = "application/json"
+                        }
+                        else -> {
+                            file = RawJsonStorage.buildCatalogCsvExport(this, all)
+                            mime = "text/csv"
+                        }
                     }
                     runOnUiThread {
                         shareFileToOtherApps(file, mime)

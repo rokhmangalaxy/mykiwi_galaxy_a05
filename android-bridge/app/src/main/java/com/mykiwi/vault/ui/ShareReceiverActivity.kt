@@ -6,11 +6,13 @@ import android.os.Bundle
 import android.widget.Toast
 import com.mykiwi.vault.data.VaultDatabase
 import com.mykiwi.vault.service.VaultBridgeService
+import com.mykiwi.vault.util.KiwiLauncher
 import com.mykiwi.vault.util.ShareLinkExtractor
 
 /**
  * Activity transparan yang menerima Intent.ACTION_SEND dari tombol Share Shopee / aplikasi lain.
- * Menyimpan link affiliate ke SQLite dalam < 30ms lalu langsung finish() tanpa memindahkan layar!
+ * Menyimpan link affiliate ke antrean SQLite lalu langsung membangunkan Kiwi Browser Dev
+ * agar segera mengambil Raw JSON dan auto-close tab produk!
  */
 class ShareReceiverActivity : Activity() {
 
@@ -46,17 +48,17 @@ class ShareReceiverActivity : Activity() {
             affiliateUrl = extractedUrl
         )
 
+        // 1. Bangunkan service jembatan untuk resolve shortlink & kirim sinyal WebSocket
         VaultBridgeService.startOrWake(applicationContext, VaultBridgeService.ACTION_WAKE_QUEUE)
 
-        val suffix = if (VaultBridgeService.isKiwiConnected) {
-            "diproses di latar belakang"
+        // 2. Langsung buka Kiwi Browser Dev agar tidak dibekukan di background oleh Android
+        val launched = KiwiLauncher.launchKiwiForCapture(this)
+
+        val msg = if (launched) {
+            "⚡ Mengambil Raw JSON di Kiwi Dev (auto-close setelah dapat)..."
         } else {
-            "masuk antrean (menunggu Kiwi Dev)"
+            "📥 Masuk antrean (pasang Kiwi Browser Dev untuk mengambil JSON)"
         }
-        Toast.makeText(
-            applicationContext,
-            "📥 Simpan Produk: $suffix",
-            Toast.LENGTH_SHORT
-        ).show()
+        Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
     }
 }

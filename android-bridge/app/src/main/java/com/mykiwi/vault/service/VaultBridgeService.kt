@@ -9,7 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -94,6 +97,17 @@ class VaultBridgeService : Service() {
         if (eventType == "ENQUEUE_REQUESTED") {
             resolvePendingLinksAsync()
             return
+        }
+
+        if (eventType == "PRODUCT_SAVED") {
+            val shortTitle = (detail ?: "Produk").take(42)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    applicationContext,
+                    "✅ Raw JSON tersimpan: $shortTitle",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
 
         if (eventType.startsWith("JOB_FAILED:")) {

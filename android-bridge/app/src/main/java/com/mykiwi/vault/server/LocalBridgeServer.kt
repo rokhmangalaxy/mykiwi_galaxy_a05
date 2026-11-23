@@ -5,6 +5,7 @@ import android.util.Base64
 import com.mykiwi.vault.data.RawJsonStorage
 import com.mykiwi.vault.data.VaultDatabase
 import com.mykiwi.vault.model.ProductRecord
+import com.mykiwi.vault.util.ShareLinkExtractor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -31,6 +32,12 @@ class LocalBridgeServer(
     @Volatile
     private var running = false
     private var serverSocket: ServerSocket? = null
+
+    @Volatile
+    private var kiwiShopeeLoggedIn: Boolean = false
+
+    @Volatile
+    private var kiwiShopeeUserId: String? = null
 
     fun start() {
         if (running) return
@@ -161,6 +168,19 @@ class LocalBridgeServer(
     ) {
         try {
             when {
+                method == "GET" && (path == "/" || path == "/index.html") -> {
+                    val html = appContext.assets.open("dashboard.html")
+                        .bufferedReader(Charsets.UTF_8)
+                        .use { it.readText() }
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "text/html; charset=utf-8",
+                        html.toByteArray(Charsets.UTF_8)
+                    )
+                }
+
                 method == "GET" && path == "/api/health" -> {
                     val stats = db.getStats()
                     val res = JSONObject().apply {
@@ -168,10 +188,14 @@ class LocalBridgeServer(
                         put("app", "ShopVault")
                         put("package", appContext.packageName)
                         put("kiwiConnected", wsClients.size > 0)
+                        put("kiwiShopeeLoggedIn", wsClients.size > 0 && kiwiShopeeLoggedIn)
+                        put("kiwiShopeeUserId", if (wsClients.size > 0 && kiwiShopeeUserId != null) kiwiShopeeUserId else JSONObject.NULL)
                         put("wsClients", wsClients.size)
                         put("totalProducts", stats.totalProducts)
                         put("queuedCount", stats.queuedCount)
                         put("processingCount", stats.processingCount)
+                        put("attentionCount", stats.attentionCount)
+                        put("lastAttentionReason", stats.lastAttentionReason ?: JSONObject.NULL)
                     }
                     writeJsonResponse(output, 200, res)
                 }
@@ -270,22 +294,101 @@ class LocalBridgeServer(
                 method == "GET" && path.matches(Regex("""^/api/products/\d+/raw$""")) -> {
                     val productId = path.split("/")[3].toLong()
                     val p = db.getProductById(productId)
-                    val raw = RawJsonStorage.readRawResponse(p?.rawJsonPath)
-                    if (raw == null) {
+                    val rawBytes = RawJsonStorage.readRawResponseBytes(p?.rawJsonPath)
+                    if (rawBytes == null || p == null) {
                         writeJsonResponse(output, 404, JSONObject().put("ok", false).put("error", "Raw JSON not found"))
                     } else {
-                        writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", raw.toByteArray(Charsets.UTF_8))
+                        val isDownload = parseQueryParam(query, "download") == "1"
+                        val fileName = if (!p.shopId.isNullOrBlank() && !p.itemId.isNullOrBlank()) {
+                            "${p.sourcePlatform}_${p.shopId}_${p.itemId}.json"
+                        } else {
+                            "product_${p.id}.json"
+                        }.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                        val headers = if (isDownload) {
+                            mapOf("Content-Disposition" to "attachment; filename=\"$fileName\"")
+                        } else {
+                            emptyMap()
+                        }
+                        writeHttpResponse(
+                            output,
+                            200,
+                            "OK",
+                            "application/json; charset=utf-8",
+                            rawBytes,
+                            headers
+                        )
                     }
+                }
+
+                method == "GET" && path == "/api/export-raw.zip" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val zipFile = RawJsonStorage.buildRawJsonZipExport(appContext, all)
+                    val bytes = zipFile.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "application/zip",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_raw_json_asli.zip\"")
+                    )
+                }
+
+                method == "DELETE" && path.matches(Regex("""^/api/products/\d+$""")) -> {
+                    val productId = path.substringAfterLast('/').toLong()
+                    val deleted = db.deleteProduct(appContext, productId)
+                    onEventCallback?.invoke("PRODUCT_DELETED", productId.toString())
+                    writeJsonResponse(output, 200, JSONObject().put("ok", deleted))
+                }
+
+                method == "POST" && path == "/api/queue/retry" -> {
+                    val count = db.retryAttentionJobs()
+                    broadcastWake(forceResume = true)
+                    onEventCallback?.invoke("QUEUE_RETRIED", count.toString())
+                    writeJsonResponse(output, 200, JSONObject().put("ok", true).put("retried", count))
+                }
+
+                method == "GET" && path == "/api/export.json" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val file = RawJsonStorage.buildCatalogJsonExport(appContext, all)
+                    val bytes = file.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "application/json; charset=utf-8",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_products.json\"")
+                    )
+                }
+
+                method == "GET" && path == "/api/export.csv" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val file = RawJsonStorage.buildCatalogCsvExport(appContext, all)
+                    val bytes = file.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "text/csv; charset=utf-8",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_products.csv\"")
+                    )
                 }
 
                 method == "POST" && path == "/api/enqueue" -> {
                     val payload = JSONObject(body)
-                    val url = payload.optString("url", "").trim()
-                    if (url.isEmpty()) {
-                        writeJsonResponse(output, 400, JSONObject().put("ok", false).put("error", "url wajib diisi"))
+                    val rawInput = payload.optString("url", "").trim()
+                    val extractedUrl = ShareLinkExtractor.extractFirstUrl(rawInput)
+                    if (extractedUrl == null) {
+                        writeJsonResponse(
+                            output,
+                            400,
+                            JSONObject().put("ok", false).put("error", "Link http/https produk tidak ditemukan")
+                        )
                     } else {
-                        val queueId = db.enqueueShare(url, url)
-                        onEventCallback?.invoke("ENQUEUE_REQUESTED", url)
+                        val queueId = db.enqueueShare(rawInput, extractedUrl)
+                        onEventCallback?.invoke("ENQUEUE_REQUESTED", extractedUrl)
                         writeJsonResponse(output, 200, JSONObject().put("ok", true).put("queueId", queueId))
                     }
                 }
@@ -406,6 +509,10 @@ class LocalBridgeServer(
     private fun handleWsMessage(session: WsSession, text: String) {
         try {
             val msg = JSONObject(text)
+            if (msg.has("shopeeLoggedIn")) {
+                kiwiShopeeLoggedIn = msg.optBoolean("shopeeLoggedIn", false)
+                kiwiShopeeUserId = if (msg.isNull("shopeeUserId")) null else msg.optString("shopeeUserId", "").ifBlank { null }
+            }
             if (msg.optString("type") == "ping") {
                 session.sendText(JSONObject().put("type", "pong").put("ts", System.currentTimeMillis()).toString())
             }
@@ -434,7 +541,8 @@ class LocalBridgeServer(
         code: Int,
         statusText: String,
         contentType: String,
-        body: ByteArray
+        body: ByteArray,
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
         val headers = buildString {
             append("HTTP/1.1 ").append(code).append(' ').append(statusText).append("\r\n")
@@ -444,6 +552,9 @@ class LocalBridgeServer(
             append("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n")
             append("Access-Control-Allow-Headers: Content-Type, Authorization\r\n")
             append("Access-Control-Allow-Private-Network: true\r\n")
+            for ((k, v) in extraHeaders) {
+                append(k).append(": ").append(v).append("\r\n")
+            }
             append("Connection: close\r\n\r\n")
         }
         output.write(headers.toByteArray(Charsets.US_ASCII))

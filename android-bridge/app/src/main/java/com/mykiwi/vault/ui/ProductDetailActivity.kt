@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import com.google.android.material.button.MaterialButton
 import com.mykiwi.vault.R
+import com.mykiwi.vault.data.RawJsonStorage
 import com.mykiwi.vault.data.VaultDatabase
 import com.mykiwi.vault.model.ProductRecord
 import org.json.JSONArray
@@ -77,6 +78,7 @@ class ProductDetailActivity : AppCompatActivity() {
 
         val btnCopyAffiliate = findViewById<MaterialButton>(R.id.btnDetailCopyAffiliate)
         val btnShareJson = findViewById<MaterialButton>(R.id.btnDetailShareJson)
+        val btnCopyRawJson = findViewById<MaterialButton>(R.id.btnDetailCopyRawJson)
         val btnCopyVideo = findViewById<MaterialButton>(R.id.btnDetailCopyVideo)
         val btnCopyImages = findViewById<MaterialButton>(R.id.btnDetailCopyImages)
 
@@ -137,6 +139,20 @@ class ProductDetailActivity : AppCompatActivity() {
 
         btnShareJson.setOnClickListener {
             shareProductJson(p)
+        }
+
+        btnCopyRawJson.isEnabled = !p.rawJsonPath.isNullOrBlank()
+        btnCopyRawJson.setOnClickListener {
+            ioExecutor.execute {
+                val rawText = RawJsonStorage.readRawResponse(p.rawJsonPath)
+                runOnUiThread {
+                    if (rawText.isNullOrEmpty()) {
+                        Toast.makeText(this, "File Raw JSON tidak ditemukan", Toast.LENGTH_SHORT).show()
+                    } else {
+                        copyText("Raw JSON Asli", rawText)
+                    }
+                }
+            }
         }
     }
 
