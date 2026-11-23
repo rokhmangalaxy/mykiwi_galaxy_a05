@@ -19,6 +19,7 @@
   const reconnectBtn = document.getElementById("reconnectBtn");
   const cdpToggle = document.getElementById("cdpToggle");
   const cloakToggle = document.getElementById("cloakToggle");
+  const autoCloseToggle = document.getElementById("autoCloseToggle");
   const cookieInput = document.getElementById("cookieInput");
   const importCookieBtn = document.getElementById("importCookieBtn");
   const exportCookieBtn = document.getElementById("exportCookieBtn");
@@ -56,6 +57,7 @@
     capturedCount.textContent = String(st.capturedCount || 0);
     cdpToggle.checked = st.useCdpDebugger === true;
     cloakToggle.checked = st.fullDesktopCloak !== false;
+    if (autoCloseToggle) autoCloseToggle.checked = st.autoCloseShopeeTab !== false;
 
     if (st.paused) {
       workerState.textContent = "Dijeda";
@@ -175,6 +177,7 @@
         type: "RECONNECT_BRIDGE",
         useCdpDebugger: cdpToggle.checked,
         fullDesktopCloak: cloakToggle.checked,
+        autoCloseShopeeTab: autoCloseToggle ? autoCloseToggle.checked : true,
       },
       render
     );
@@ -186,6 +189,7 @@
         type: "UPDATE_SETTINGS",
         useCdpDebugger: cdpToggle.checked,
         fullDesktopCloak: cloakToggle.checked,
+        autoCloseShopeeTab: autoCloseToggle ? autoCloseToggle.checked : true,
       },
       render
     );
@@ -193,6 +197,7 @@
 
   cdpToggle.addEventListener("change", saveSettings);
   cloakToggle.addEventListener("change", saveSettings);
+  if (autoCloseToggle) autoCloseToggle.addEventListener("change", saveSettings);
 
   chrome.runtime.onMessage.addListener(function (msg) {
     if (msg && msg.type === "WORKER_STATE_UPDATE") {
@@ -200,9 +205,18 @@
     }
   });
 
-  document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) refresh();
-  });
+  function notifyForegrounded() {
+    chrome.runtime.sendMessage({ type: "APP_FOREGROUNDED" }, function (res) {
+      if (!chrome.runtime.lastError && res) {
+        render(res);
+      }
+    });
+  }
 
-  refresh();
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) notifyForegrounded();
+  });
+  window.addEventListener("focus", notifyForegrounded);
+
+  notifyForegrounded();
 })();

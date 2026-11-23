@@ -40,7 +40,16 @@ const cbSrc = fs.readFileSync("kiwi-extension/content_bridge.js", "utf8");
 const syncMatch = cbSrc.match(/const SYNC_MAIN_WORLD_SCRIPT = `([\s\S]*?)`;/);
 assert.ok(syncMatch, "SYNC_MAIN_WORLD_SCRIPT not found in content_bridge.js");
 new Function(syncMatch[1].replace(/\\\\/g, "\\"));
-console.log("  ✓ content_bridge.js inline MAIN-world script valid");
+const bgSrc = fs.readFileSync("kiwi-extension/background.js", "utf8");
+assert.ok(
+  bgSrc.includes("rawJson: capturedPdpRaw"),
+  "background.js harus mengirim capturedPdpRaw murni apa adanya tanpa di-wrap"
+);
+assert.ok(
+  !bgSrc.includes("rawBundle"),
+  "background.js tidak boleh membungkus rawJson ke dalam rawBundle"
+);
+console.log("  ✓ Verifikasi Raw JSON 100% murni (tanpa edit/wrapper) valid");
 
 console.log("=== 2. Test URL Extractor & Shopee Affiliate Link Formats ===");
 const shareText =

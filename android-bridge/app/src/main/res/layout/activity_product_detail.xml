@@ -105,12 +105,24 @@
                 android:layout_width="0dp"
                 android:layout_height="44dp"
                 android:layout_weight="1"
-                android:text="Kirim JSON ke App Lain"
+                android:text="Kirim File Raw JSON"
                 android:textAllCaps="false"
                 android:textColor="@color/vault_text"
                 android:textSize="12sp"
                 app:strokeColor="@color/vault_border" />
         </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDetailCopyRawJson"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="8dp"
+            android:text="📋 Copy Teks Raw JSON Asli (Murni Tanpa Edit)"
+            android:textAllCaps="false"
+            android:textColor="@color/vault_teal"
+            android:textSize="12sp"
+            app:strokeColor="@color/vault_teal" />
 
         <LinearLayout
             android:layout_width="match_parent"

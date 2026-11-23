@@ -294,12 +294,44 @@ class LocalBridgeServer(
                 method == "GET" && path.matches(Regex("""^/api/products/\d+/raw$""")) -> {
                     val productId = path.split("/")[3].toLong()
                     val p = db.getProductById(productId)
-                    val raw = RawJsonStorage.readRawResponse(p?.rawJsonPath)
-                    if (raw == null) {
+                    val rawBytes = RawJsonStorage.readRawResponseBytes(p?.rawJsonPath)
+                    if (rawBytes == null || p == null) {
                         writeJsonResponse(output, 404, JSONObject().put("ok", false).put("error", "Raw JSON not found"))
                     } else {
-                        writeHttpResponse(output, 200, "OK", "application/json; charset=utf-8", raw.toByteArray(Charsets.UTF_8))
+                        val isDownload = parseQueryParam(query, "download") == "1"
+                        val fileName = if (!p.shopId.isNullOrBlank() && !p.itemId.isNullOrBlank()) {
+                            "${p.sourcePlatform}_${p.shopId}_${p.itemId}.json"
+                        } else {
+                            "product_${p.id}.json"
+                        }.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                        val headers = if (isDownload) {
+                            mapOf("Content-Disposition" to "attachment; filename=\"$fileName\"")
+                        } else {
+                            emptyMap()
+                        }
+                        writeHttpResponse(
+                            output,
+                            200,
+                            "OK",
+                            "application/json; charset=utf-8",
+                            rawBytes,
+                            headers
+                        )
                     }
+                }
+
+                method == "GET" && path == "/api/export-raw.zip" -> {
+                    val all = db.listProducts(limit = 5000)
+                    val zipFile = RawJsonStorage.buildRawJsonZipExport(appContext, all)
+                    val bytes = zipFile.readBytes()
+                    writeHttpResponse(
+                        output,
+                        200,
+                        "OK",
+                        "application/zip",
+                        bytes,
+                        mapOf("Content-Disposition" to "attachment; filename=\"shopvault_raw_json_asli.zip\"")
+                    )
                 }
 
                 method == "DELETE" && path.matches(Regex("""^/api/products/\d+$""")) -> {

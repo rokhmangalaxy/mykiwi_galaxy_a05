@@ -4,7 +4,11 @@ import android.content.Context
 import com.mykiwi.vault.model.ProductRecord
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 object RawJsonStorage {
 
@@ -18,6 +22,9 @@ object RawJsonStorage {
         return File(base, "exports").apply { mkdirs() }
     }
 
+    /**
+     * Simpan string Raw JSON asli dari Shopee 100% apa adanya (tanpa di-parse / di-edit sedikitpun).
+     */
     fun saveRawResponse(
         context: Context,
         platform: String,
@@ -31,22 +38,27 @@ object RawJsonStorage {
             "${platform}_${System.currentTimeMillis()}"
         }
         val file = File(rawDir(context), "$safeKey.json")
-        file.writeText(rawJson, Charsets.UTF_8)
+        file.writeBytes(rawJson.toByteArray(Charsets.UTF_8))
         return file.absolutePath
     }
 
-    fun readRawResponse(path: String?): String? {
+    fun readRawResponseBytes(path: String?): ByteArray? {
         if (path.isNullOrBlank()) return null
         val f = File(path)
         return if (f.exists() && f.isFile) {
             try {
-                f.readText(Charsets.UTF_8)
+                f.readBytes()
             } catch (_: Exception) {
                 null
             }
         } else {
             null
         }
+    }
+
+    fun readRawResponse(path: String?): String? {
+        val bytes = readRawResponseBytes(path) ?: return null
+        return String(bytes, Charsets.UTF_8)
     }
 
     fun deleteRawFile(path: String?) {
@@ -56,6 +68,36 @@ object RawJsonStorage {
             if (f.exists()) f.delete()
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Bundel seluruh file Raw JSON asli apa adanya (byte-for-byte tanpa modifikasi) ke dalam .zip
+     */
+    fun buildRawJsonZipExport(context: Context, products: List<ProductRecord>): File {
+        val out = File(exportDir(context), "shopvault_raw_json_${System.currentTimeMillis()}.zip")
+        val usedNames = HashSet<String>()
+
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(out))).use { zos ->
+            for (p in products) {
+                val rawBytes = readRawResponseBytes(p.rawJsonPath) ?: continue
+                val baseName = if (!p.shopId.isNullOrBlank() && !p.itemId.isNullOrBlank()) {
+                    "${p.sourcePlatform}_${p.shopId}_${p.itemId}.json"
+                } else {
+                    "product_${p.id}.json"
+                }.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+
+                val entryName = if (usedNames.add(baseName)) {
+                    baseName
+                } else {
+                    "id${p.id}_$baseName".also { usedNames.add(it) }
+                }
+
+                zos.putNextEntry(ZipEntry(entryName))
+                zos.write(rawBytes)
+                zos.closeEntry()
+            }
+        }
+        return out
     }
 
     fun buildCatalogJsonExport(context: Context, products: List<ProductRecord>): File {

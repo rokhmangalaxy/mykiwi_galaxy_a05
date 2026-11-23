@@ -3,8 +3,7 @@
   "use strict";
 
   const DEFAULT_PORT = 8765;
-  const EXTENSION_VERSION = "1.2.1";
-  // Selaras 100% dengan engine Chromium 132 asli di dalam Kiwi Browser Dev
+  const EXTENSION_VERSION = "1.3.0";
   const DESKTOP_CHROME_UA =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36";
 
@@ -54,24 +53,24 @@
     })();
   `;
 
-  const SHOPEE_MIN_JITTER_MS = 9000;
-  const SHOPEE_MAX_JITTER_MS = 13000;
-  const CAPTURE_TIMEOUT_MS = 24000;
-  const RATINGS_GRACE_MS = 1400;
+  const SHOPEE_MIN_JITTER_MS = 2500;
+  const SHOPEE_MAX_JITTER_MS = 4200;
+  const CAPTURE_TIMEOUT_MS = 22000;
   const LOGIN_BOUNCE_GRACE_MS = 3500;
 
   const state = {
     bridgeHost: "127.0.0.1",
     bridgePort: DEFAULT_PORT,
-    // Matikan CDP debugger secara default agar fingerprint tab Worker 100% identik dengan tab Login!
     useCdpDebugger: false,
     fullDesktopCloak: true,
+    autoCloseShopeeTab: true,
     blockHeavyMediaOnWorker: true,
     wsConnected: false,
     paused: false,
     pauseReason: null,
     workerTabId: null,
     qrLoginTabId: null,
+    activeCaptureTabId: null,
     processingJob: null,
     lastShopeeCaptureAt: 0,
     capturedCount: 0,
@@ -91,6 +90,7 @@
   let heartbeatTimer = null;
   let activeCaptureSession = null;
   let cookieDebounceTimer = null;
+  let burstTimers = [];
 
   function logEvent(level, message) {
     const entry = {
@@ -131,6 +131,7 @@
       bridgePort: state.bridgePort,
       useCdpDebugger: state.useCdpDebugger,
       fullDesktopCloak: state.fullDesktopCloak,
+      autoCloseShopeeTab: state.autoCloseShopeeTab,
       blockHeavyMediaOnWorker: state.blockHeavyMediaOnWorker,
       wsConnected: state.wsConnected,
       paused: state.paused,
@@ -149,12 +150,14 @@
         bridgePort: DEFAULT_PORT,
         useCdpDebuggerV2: false,
         fullDesktopCloak: true,
+        autoCloseShopeeTab: true,
         blockHeavyMediaOnWorker: true,
       },
       function (items) {
         state.bridgePort = Number(items.bridgePort) || DEFAULT_PORT;
         state.useCdpDebugger = items.useCdpDebuggerV2 === true;
         state.fullDesktopCloak = items.fullDesktopCloak !== false;
+        state.autoCloseShopeeTab = items.autoCloseShopeeTab !== false;
         state.blockHeavyMediaOnWorker = items.blockHeavyMediaOnWorker !== false;
         if (cb) cb();
       }
@@ -176,6 +179,25 @@
       h.endsWith("susercontent.com") ||
       h.endsWith("shopeemobile.com")
     );
+  }
+
+  // Saat Kiwi dibangunkan oleh ShareReceiverActivity dari aplikasi Shopee,
+  // langsung cek antrean secara agresif (0ms, 450ms, 1100ms, 2300ms) agar tidak menunggu interval 15 detik!
+  function triggerForegroundBurst() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      connectWebSocket();
+    }
+    for (const t of burstTimers) clearTimeout(t);
+    burstTimers = [];
+
+    triggerQueueCheck();
+    for (const delay of [450, 1100, 2300]) {
+      burstTimers.push(
+        setTimeout(function () {
+          triggerQueueCheck();
+        }, delay)
+      );
+    }
   }
 
   // =========================================================================
@@ -266,9 +288,11 @@
   chrome.webRequest.onBeforeRequest.addListener(
     function (details) {
       const url = details.url || "";
+      const isCaptureTab =
+        details.tabId !== -1 && details.tabId === state.activeCaptureTabId;
 
       if (
-        (details.tabId === state.workerTabId || state.fullDesktopCloak) &&
+        (isCaptureTab || state.fullDesktopCloak) &&
         /^(intent|shopeeid|market):\/\//i.test(url)
       ) {
         logEvent("info", `Mencegah redirect eksternal: ${url.slice(0, 60)}`);
@@ -276,8 +300,7 @@
       }
 
       if (
-        details.tabId !== -1 &&
-        details.tabId === state.workerTabId &&
+        isCaptureTab &&
         state.blockHeavyMediaOnWorker &&
         (details.type === "media" || details.type === "font")
       ) {
@@ -290,8 +313,9 @@
   );
 
   function rewriteShopeeRequestHeaders(details) {
-    const isWorker = details.tabId !== -1 && details.tabId === state.workerTabId;
-    if (!state.fullDesktopCloak && !isWorker) {
+    const isCaptureTab =
+      details.tabId !== -1 && details.tabId === state.activeCaptureTabId;
+    if (!state.fullDesktopCloak && !isCaptureTab) {
       return {};
     }
     if (!isShopeeRelatedHost(safeHostname(details.url))) {
@@ -461,7 +485,7 @@
               state.qrLoginTabId = tab.id;
               logEvent(
                 "info",
-                "Form Login dibuka! Jika pakai Link WhatsApp: setelah klik Setujui di WA/Shopee, wajib kembali ke tab Kiwi ini sampai masuk Beranda Shopee."
+                "Form Login dibuka! Begitu berhasil login, tab Shopee akan otomatis ditutup agar sesi tidak kena verifikasi ulang."
               );
               resolve({ ok: true, tabId: tab.id });
             }
@@ -591,7 +615,7 @@
   }
 
   // =========================================================================
-  // 3. Worker Anchor Tab Management
+  // 3. Worker Anchor Tab Management + Auto-Close Tab Produk Sementara
   // =========================================================================
   function idlePageUrl() {
     return chrome.runtime.getURL("idle.html");
@@ -641,6 +665,21 @@
     });
   }
 
+  function focusWorkerIdleTab() {
+    if (state.workerTabId === null) return;
+    chrome.tabs.update(state.workerTabId, { active: true }, function () {
+      void chrome.runtime.lastError;
+    });
+  }
+
+  function closeTabSafely(tabId) {
+    if (!tabId) return;
+    chrome.tabs.remove(tabId, function () {
+      void chrome.runtime.lastError;
+      focusWorkerIdleTab();
+    });
+  }
+
   chrome.tabs.onRemoved.addListener(function (tabId) {
     if (tabId === state.workerTabId) {
       state.workerTabId = null;
@@ -649,14 +688,26 @@
     if (tabId === state.qrLoginTabId) {
       state.qrLoginTabId = null;
     }
+    if (activeCaptureSession && tabId === activeCaptureSession.tabId) {
+      activeCaptureSession.onTabClosedExternally();
+    }
   });
 
-  function parkWorkerTab() {
-    if (state.workerTabId === null) return;
-    chrome.tabs.update(state.workerTabId, { url: idlePageUrl() }, function () {
-      void chrome.runtime.lastError;
-    });
-  }
+  chrome.tabs.onActivated.addListener(function () {
+    if (!state.processingJob && !state.paused) {
+      triggerQueueCheck();
+    }
+  });
+
+  try {
+    if (chrome.windows && chrome.windows.onFocusChanged) {
+      chrome.windows.onFocusChanged.addListener(function (winId) {
+        if (winId !== chrome.windows.WINDOW_ID_NONE) {
+          triggerForegroundBurst();
+        }
+      });
+    }
+  } catch (_) {}
 
   // =========================================================================
   // 4. WebSocket + HTTP Bridge Client to ShopVault (com.mykiwi.vault)
@@ -702,12 +753,12 @@
             state.paused = false;
             state.pauseReason = null;
           }
-          triggerQueueCheck();
+          triggerForegroundBurst();
         } else if (msg.type === "resume") {
           state.paused = false;
           state.pauseReason = null;
           logEvent("info", "Antrean dilanjutkan dari ShopVault.");
-          triggerQueueCheck();
+          triggerForegroundBurst();
         } else if (msg.type === "pause") {
           state.paused = true;
           state.pauseReason = msg.reason || "Dijeda manual";
@@ -768,11 +819,11 @@
     reconnectTimer = setTimeout(function () {
       reconnectTimer = null;
       connectWebSocket();
-    }, 3500);
+    }, 3000);
   }
 
   // =========================================================================
-  // 5. Sequential Queue Worker + Session Check + Capture Engine
+  // 5. Sequential Queue Worker + Instant Auto-Close + Pure Verbatim Raw JSON
   // =========================================================================
   async function triggerQueueCheck() {
     if (state.paused || state.processingJob) return;
@@ -812,7 +863,7 @@
       state.processingJob = null;
       broadcastStateToUi();
       if (!state.paused) {
-        setTimeout(triggerQueueCheck, 600);
+        setTimeout(triggerQueueCheck, 500);
       }
     }
   }
@@ -823,16 +874,14 @@
       return auth;
     }
 
-    // Jika pengguna baru saja klik "Setujui" pada Link WhatsApp di aplikasi WA/Shopee
-    // lalu langsung Share produk tanpa sempat kembali ke tab Kiwi, bangunkan poller tab Login!
     logEvent("info", "Membangunkan tab Login Shopee untuk mengambil cookie verifikasi WhatsApp...");
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 6; i++) {
       if (state.qrLoginTabId !== null) {
         chrome.tabs.sendMessage(state.qrLoginTabId, { type: "WAKE_LOGIN_POLLER" }, function () {
           void chrome.runtime.lastError;
         });
       }
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 900));
       auth = await checkShopeeAuthSession();
       if (auth.loggedIn) {
         logEvent("info", "✅ Cookie verifikasi WhatsApp berhasil diterima Kiwi Dev!");
@@ -850,7 +899,7 @@
       Math.floor(Math.random() * (SHOPEE_MAX_JITTER_MS - SHOPEE_MIN_JITTER_MS));
     if (state.lastShopeeCaptureAt > 0 && elapsed < targetWait) {
       const remain = targetWait - elapsed;
-      logEvent("info", `Jeda aman anti-429 Shopee ${(remain / 1000).toFixed(1)} dtk...`);
+      logEvent("info", `Jeda antrean ${(remain / 1000).toFixed(1)} dtk...`);
       await new Promise((r) => setTimeout(r, remain));
     }
   }
@@ -860,6 +909,9 @@
     if (!rawTargetUrl) {
       throw new Error("URL target kosong");
     }
+
+    // Pastikan tab anchor idle.html ada agar saat tab produk auto-close, Kiwi kembali ke halaman aman
+    await ensureWorkerTab().catch(() => {});
 
     const targetUrl = ShopeeParser.cleanShopeeTargetUrl(rawTargetUrl);
     const isShopeeJob =
@@ -872,42 +924,39 @@
     }
 
     await waitShopeePacingIfNeeded(targetUrl);
-    const tabId = await ensureWorkerTab();
 
     const authTag = isShopeeJob
       ? auth.loggedIn
-        ? `[Sesi Shopee: AKTIF${auth.userId ? " UID " + auth.userId : ""}]`
-        : "[Sesi Shopee: BELUM ADA COOKIE SPC_EC]"
+        ? `[Sesi: AKTIF${auth.userId ? " UID " + auth.userId : ""}]`
+        : "[Sesi: BELUM ADA COOKIE SPC_EC]"
       : "";
-    logEvent("info", `Memuat produk #${job.id}: ${targetUrl} ${authTag}`);
+    logEvent("info", `Membuka tab sementara #${job.id}: ${targetUrl} ${authTag}`);
 
-    const result = await captureTabProduct(tabId, job, targetUrl);
+    const result = await captureInEphemeralTab(job, targetUrl);
     if (isShopeeJob) {
       state.lastShopeeCaptureAt = Date.now();
     }
 
     await submitJobResult(job.id, result);
     state.capturedCount += 1;
+    const rawKb = result.rawJson ? (result.rawJson.length / 1024).toFixed(1) : "0";
     logEvent(
       "info",
-      `Tersimpan: "${(result.product.title || "").slice(0, 48)}" (Rp ${(
-        result.product.priceMin || 0
-      ).toLocaleString("id-ID")})`
+      `✅ Raw JSON Murni tersimpan (${rawKb} KB) & tab ditutup: "${(
+        result.product.title || ""
+      ).slice(0, 44)}"`
     );
-    parkWorkerTab();
   }
 
-  function captureTabProduct(tabId, job, initialUrl) {
+  function captureInEphemeralTab(job, initialUrl) {
     return new Promise((resolve, reject) => {
       let settled = false;
+      let captureTabId = null;
       let debuggerAttached = false;
       let mainTimer = null;
-      let ratingsTimer = null;
       let loginBounceTimer = null;
       let retriedDirectAfterBounce = false;
       let capturedPdpRaw = null;
-      let capturedPdpUrl = null;
-      let capturedRatingsRaw = null;
       let parsedProduct = null;
       const pendingCdpRequests = new Map();
 
@@ -918,46 +967,43 @@
         }
       }
 
-      function cleanup() {
+      function cleanupAndAutoClose() {
         if (mainTimer) clearTimeout(mainTimer);
-        if (ratingsTimer) clearTimeout(ratingsTimer);
         clearLoginBounceTimer();
         activeCaptureSession = null;
-        if (debuggerAttached) {
+        const tabToClose = captureTabId;
+        state.activeCaptureTabId = null;
+        captureTabId = null;
+
+        if (debuggerAttached && tabToClose) {
           debuggerAttached = false;
-          chrome.debugger.detach({ tabId }, function () {
+          chrome.debugger.detach({ tabId: tabToClose }, function () {
             void chrome.runtime.lastError;
+            if (state.autoCloseShopeeTab && tabToClose) {
+              closeTabSafely(tabToClose);
+            }
           });
+        } else if (state.autoCloseShopeeTab && tabToClose) {
+          closeTabSafely(tabToClose);
         }
       }
 
       function finishSuccess() {
         if (settled || !parsedProduct) return;
         settled = true;
-        if (capturedRatingsRaw) {
-          parsedProduct.topReviews = ShopeeParser.parseShopeeRatingsJson(capturedRatingsRaw);
-        }
-        const rawBundle = {
-          capturedAt: new Date().toISOString(),
-          jobId: job.id,
-          affiliateUrl: job.affiliateUrl,
-          resolvedUrl: parsedProduct.cleanUrl || initialUrl,
-          pdpEndpoint: capturedPdpUrl,
-          pdpResponse: safeJsonParse(capturedPdpRaw),
-          ratingsResponse: safeJsonParse(capturedRatingsRaw),
-        };
-        cleanup();
+        // PENTING: Tutup tab Shopee DETIK ITU JUGA (0ms) agar tidak sempat memicu verifikasi ulang!
+        cleanupAndAutoClose();
+        // PENTING: Kirim capturedPdpRaw 100% APA ADANYA (murni response body Shopee tanpa edit/bungkus)!
         resolve({
           product: parsedProduct,
-          rawJson: JSON.stringify(rawBundle),
+          rawJson: capturedPdpRaw,
         });
       }
 
       function finishError(err) {
         if (settled) return;
         settled = true;
-        cleanup();
-        parkWorkerTab();
+        cleanupAndAutoClose();
         reject(err);
       }
 
@@ -972,6 +1018,8 @@
                 shopId: job.shopId,
                 itemId: job.itemId,
               };
+            // parseShopeePdpJson HANYA membaca ringkasan untuk indeks pencarian ShopVault;
+            // string asli bodyText sama sekali TIDAK diubah!
             parsedProduct = ShopeeParser.parseShopeePdpJson(bodyText, {
               affiliateUrl: job.affiliateUrl,
               pageUrl: pageUrl || initialUrl,
@@ -980,225 +1028,226 @@
               domain: ids && ids.domain,
             });
             capturedPdpRaw = bodyText;
-            capturedPdpUrl = apiUrl;
 
-            if (capturedRatingsRaw) {
-              finishSuccess();
-            } else if (!ratingsTimer) {
-              ratingsTimer = setTimeout(finishSuccess, RATINGS_GRACE_MS);
-            }
+            // Langsung selesaikan & auto-close tab saat itu juga tanpa menunggu apa pun lagi!
+            finishSuccess();
           } catch (err) {
             if (err && err.captureStatus) {
               finishError(err);
             }
           }
-        } else if (ShopeeParser.isShopeeRatingsApiUrl(apiUrl) && !capturedRatingsRaw) {
-          capturedRatingsRaw = bodyText;
-          if (parsedProduct) {
-            finishSuccess();
-          }
         }
       }
 
-      activeCaptureSession = {
-        tabId,
-        onPageHookResponse(msg) {
-          handleApiBody(msg.url, msg.body, msg.pageUrl);
-        },
-        onCdpEvent(source, method, params) {
-          if (source.tabId !== tabId || settled) return;
-          if (method === "Network.responseReceived" && params && params.response) {
-            const respUrl = params.response.url || "";
-            if (
-              ShopeeParser.isShopeeProductApiUrl(respUrl) ||
-              ShopeeParser.isShopeeRatingsApiUrl(respUrl)
-            ) {
-              pendingCdpRequests.set(params.requestId, respUrl);
-            }
-          } else if (method === "Network.loadingFinished" && params) {
-            const respUrl = pendingCdpRequests.get(params.requestId);
-            if (respUrl) {
-              pendingCdpRequests.delete(params.requestId);
-              chrome.debugger.sendCommand(
-                { tabId },
-                "Network.getResponseBody",
-                { requestId: params.requestId },
-                function (res) {
-                  if (chrome.runtime.lastError || !res || !res.body) return;
-                  const text = res.base64Encoded ? atob(res.body) : res.body;
-                  handleApiBody(respUrl, text, initialUrl);
-                }
-              );
-            }
-          }
-        },
-        onTabUpdated(updatedTabId, changeInfo, tab) {
-          if (updatedTabId !== tabId || settled) return;
-          const currentUrl = changeInfo.url || (tab && tab.url) || "";
-          if (!currentUrl || currentUrl.indexOf("chrome-extension://") === 0) return;
+      chrome.tabs.create({ url: "about:blank", active: true }, function (createdTab) {
+        if (chrome.runtime.lastError || !createdTab || !createdTab.id) {
+          reject(
+            new Error(
+              (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
+                "Gagal membuka tab pengambilan JSON"
+            )
+          );
+          return;
+        }
 
-          const block = ShopeeParser.detectBlockedOrLoginState(currentUrl, null);
-          if (block.blocked) {
-            if (block.status === "CAPTCHA" || block.status === "RATE_LIMITED") {
-              const cErr = new Error(block.reason);
-              cErr.captureStatus = block.status;
-              finishError(cErr);
+        captureTabId = createdTab.id;
+        state.activeCaptureTabId = captureTabId;
+
+        activeCaptureSession = {
+          tabId: captureTabId,
+          onTabClosedExternally() {
+            if (settled) return;
+            captureTabId = null;
+            finishError(new Error("Tab produk ditutup sebelum Raw JSON selesai diterima."));
+          },
+          onPageHookResponse(msg) {
+            handleApiBody(msg.url, msg.body, msg.pageUrl);
+          },
+          onCdpEvent(source, method, params) {
+            if (source.tabId !== captureTabId || settled) return;
+            if (method === "Network.responseReceived" && params && params.response) {
+              const respUrl = params.response.url || "";
+              if (ShopeeParser.isShopeeProductApiUrl(respUrl)) {
+                pendingCdpRequests.set(params.requestId, respUrl);
+              }
+            } else if (method === "Network.loadingFinished" && params) {
+              const respUrl = pendingCdpRequests.get(params.requestId);
+              if (respUrl) {
+                pendingCdpRequests.delete(params.requestId);
+                chrome.debugger.sendCommand(
+                  { tabId: captureTabId },
+                  "Network.getResponseBody",
+                  { requestId: params.requestId },
+                  function (res) {
+                    if (chrome.runtime.lastError || !res || !res.body) return;
+                    const text = res.base64Encoded ? atob(res.body) : res.body;
+                    handleApiBody(respUrl, text, initialUrl);
+                  }
+                );
+              }
+            }
+          },
+          onTabUpdated(updatedTabId, changeInfo, tab) {
+            if (updatedTabId !== captureTabId || settled) return;
+            const currentUrl = changeInfo.url || (tab && tab.url) || "";
+            if (
+              !currentUrl ||
+              currentUrl === "about:blank" ||
+              currentUrl.indexOf("chrome-extension://") === 0
+            ) {
               return;
             }
 
-            // Status NEED_LOGIN (/buyer/login):
-            // 1. Jika cookie SPC_EC di Kiwi sebenarnya AKTIF dan ada parameter ?next=...,
-            //    buka ulang URL produk bersih secara langsung (menghindari jebakan redirect lintas-domain shp.ee / universal-link).
-            checkShopeeAuthSession().then((auth) => {
-              if (settled) return;
-              const nextClean = ShopeeParser.extractLoginNextUrl(currentUrl);
-              if (auth.loggedIn && !retriedDirectAfterBounce && nextClean) {
-                retriedDirectAfterBounce = true;
-                clearLoginBounceTimer();
-                logEvent(
-                  "info",
-                  `Cookie Shopee aktif, melewati redirect login menuju: ${nextClean}`
-                );
-                chrome.tabs.update(tabId, { url: nextClean });
+            const block = ShopeeParser.detectBlockedOrLoginState(currentUrl, null);
+            if (block.blocked) {
+              if (block.status === "CAPTCHA" || block.status === "RATE_LIMITED") {
+                const cErr = new Error(block.reason);
+                cErr.captureStatus = block.status;
+                finishError(cErr);
                 return;
               }
 
-              // 2. Beri waktu 3.5 detik bagi SPA Shopee untuk auto-redirect jika sesi valid,
-              //    sebelum benar-benar memvonis NEED_LOGIN.
-              if (!loginBounceTimer) {
-                loginBounceTimer = setTimeout(async function () {
-                  loginBounceTimer = null;
-                  if (settled || parsedProduct) return;
-                  const finalAuth = await checkShopeeAuthSession();
-                  chrome.tabs.get(tabId, function (latestTab) {
-                    void chrome.runtime.lastError;
-                    const latestUrl = (latestTab && latestTab.url) || currentUrl;
-                    const stillBlocked = ShopeeParser.detectBlockedOrLoginState(latestUrl, null);
-                    if (!stillBlocked.blocked) return;
+              checkShopeeAuthSession().then((auth) => {
+                if (settled) return;
+                const nextClean = ShopeeParser.extractLoginNextUrl(currentUrl);
+                if (auth.loggedIn && !retriedDirectAfterBounce && nextClean && captureTabId) {
+                  retriedDirectAfterBounce = true;
+                  clearLoginBounceTimer();
+                  logEvent(
+                    "info",
+                    `Cookie Shopee aktif, melewati redirect login menuju: ${nextClean}`
+                  );
+                  chrome.tabs.update(captureTabId, { url: nextClean });
+                  return;
+                }
 
-                    const msgText = !finalAuth.loggedIn
-                      ? "Cookie login Shopee (SPC_EC) belum tersimpan di Kiwi Dev! Jika pakai Link WhatsApp: setelah klik Setujui di WA/Shopee, buka kembali Kiwi Dev 3 detik sampai masuk Beranda Shopee (indikator Sesi Aktif HIJAU), lalu klik Lanjutkan Antrean."
-                      : "Sesi Shopee di Kiwi Dev diminta verifikasi/login ulang oleh Shopee. Klik 'Buka Beranda Shopee' di tab Worker untuk mengecek akun.";
-                    const lErr = new Error(msgText);
-                    lErr.captureStatus = "NEED_LOGIN";
-                    finishError(lErr);
-                  });
-                }, LOGIN_BOUNCE_GRACE_MS);
+                if (!loginBounceTimer) {
+                  loginBounceTimer = setTimeout(async function () {
+                    loginBounceTimer = null;
+                    if (settled || parsedProduct || !captureTabId) return;
+                    const finalAuth = await checkShopeeAuthSession();
+                    chrome.tabs.get(captureTabId, function (latestTab) {
+                      void chrome.runtime.lastError;
+                      const latestUrl = (latestTab && latestTab.url) || currentUrl;
+                      const stillBlocked = ShopeeParser.detectBlockedOrLoginState(latestUrl, null);
+                      if (!stillBlocked.blocked) return;
+
+                      const msgText = !finalAuth.loggedIn
+                        ? "Cookie login Shopee (SPC_EC) belum tersimpan di Kiwi Dev! Buka tab Worker lalu pastikan indikator Sesi Shopee berwarna HIJAU (AKTIF)."
+                        : "Sesi Shopee diminta verifikasi ulang oleh Shopee. Gunakan tombol Reset & Login ulang di tab Worker.";
+                      const lErr = new Error(msgText);
+                      lErr.captureStatus = "NEED_LOGIN";
+                      finishError(lErr);
+                    });
+                  }, LOGIN_BOUNCE_GRACE_MS);
+                }
+              });
+              return;
+            }
+
+            clearLoginBounceTimer();
+
+            if (
+              (currentUrl.includes("/universal-link/") || currentUrl.includes("/opaanlp/")) &&
+              ShopeeParser.isShopeeDomain(safeHostname(currentUrl))
+            ) {
+              const cleaned = ShopeeParser.cleanShopeeTargetUrl(currentUrl);
+              if (cleaned && cleaned !== currentUrl && captureTabId) {
+                chrome.tabs.update(captureTabId, { url: cleaned });
+                return;
               }
-            });
+            }
+
+            if (
+              changeInfo.status === "complete" &&
+              !ShopeeParser.isShopeeDomain(safeHostname(currentUrl)) &&
+              !ShopeeParser.isShortShopeeUrl(currentUrl)
+            ) {
+              setTimeout(function () {
+                if (settled || parsedProduct || !captureTabId) return;
+                chrome.tabs.sendMessage(
+                  captureTabId,
+                  { type: "GET_DOM_SNAPSHOT" },
+                  function (snapshot) {
+                    if (chrome.runtime.lastError || !snapshot) return;
+                    parsedProduct = ShopeeParser.parseGenericPageMetadata(snapshot, {
+                      affiliateUrl: job.affiliateUrl,
+                      cleanUrl: currentUrl,
+                    });
+                    capturedPdpRaw = JSON.stringify(snapshot);
+                    finishSuccess();
+                  }
+                );
+              }, 1200);
+            }
+          },
+        };
+
+        mainTimer = setTimeout(function () {
+          if (parsedProduct) {
+            finishSuccess();
             return;
           }
-
-          // Jika tab sudah keluar dari /buyer/login, batalkan timer NEED_LOGIN
-          clearLoginBounceTimer();
-
-          // Bersihkan wrapper /universal-link/ atau /opaanlp/ baik format /product/id/id maupun /username/id
-          if (
-            (currentUrl.includes("/universal-link/") || currentUrl.includes("/opaanlp/")) &&
-            ShopeeParser.isShopeeDomain(safeHostname(currentUrl))
-          ) {
-            const cleaned = ShopeeParser.cleanShopeeTargetUrl(currentUrl);
-            if (cleaned && cleaned !== currentUrl) {
-              chrome.tabs.update(tabId, { url: cleaned });
-              return;
-            }
+          if (!captureTabId) {
+            finishError(new Error("Timeout menunggu Raw JSON produk."));
+            return;
           }
+          chrome.tabs.sendMessage(captureTabId, { type: "GET_DOM_SNAPSHOT" }, function (snapshot) {
+            if (!chrome.runtime.lastError && snapshot && (snapshot.ldProduct || snapshot.ogTitle)) {
+              const block = ShopeeParser.detectBlockedOrLoginState(snapshot.url, null);
+              if (block.blocked) {
+                const bErr = new Error(block.reason);
+                bErr.captureStatus = block.status;
+                finishError(bErr);
+                return;
+              }
+              parsedProduct = ShopeeParser.parseGenericPageMetadata(snapshot, {
+                affiliateUrl: job.affiliateUrl,
+                cleanUrl: snapshot.url || initialUrl,
+              });
+              capturedPdpRaw = JSON.stringify(snapshot);
+              finishSuccess();
+            } else {
+              finishError(
+                new Error(
+                  "Timeout menunggu response Raw JSON produk Shopee (tab otomatis ditutup agar aman)."
+                )
+              );
+            }
+          });
+        }, CAPTURE_TIMEOUT_MS);
 
-          if (
-            changeInfo.status === "complete" &&
-            !ShopeeParser.isShopeeDomain(safeHostname(currentUrl)) &&
-            !ShopeeParser.isShortShopeeUrl(currentUrl)
-          ) {
-            setTimeout(function () {
-              if (settled || parsedProduct) return;
-              chrome.tabs.sendMessage(
-                tabId,
-                { type: "GET_DOM_SNAPSHOT" },
-                function (snapshot) {
-                  if (chrome.runtime.lastError || !snapshot) return;
-                  parsedProduct = ShopeeParser.parseGenericPageMetadata(snapshot, {
-                    affiliateUrl: job.affiliateUrl,
-                    cleanUrl: currentUrl,
-                  });
-                  capturedPdpRaw = JSON.stringify(snapshot);
-                  capturedPdpUrl = "dom:ld+json/opengraph";
-                  finishSuccess();
+        function startNavigation() {
+          if (!captureTabId) return;
+          chrome.tabs.update(captureTabId, { url: initialUrl }, function () {
+            if (chrome.runtime.lastError) {
+              finishError(new Error(chrome.runtime.lastError.message));
+            }
+          });
+        }
+
+        if (state.useCdpDebugger) {
+          chrome.debugger.attach({ tabId: captureTabId }, "1.3", function () {
+            if (!chrome.runtime.lastError) {
+              debuggerAttached = true;
+              chrome.debugger.sendCommand(
+                { tabId: captureTabId },
+                "Network.enable",
+                { maxPostDataSize: 65536 },
+                function () {
+                  void chrome.runtime.lastError;
+                  applyCdpDesktopProfile(captureTabId, startNavigation);
                 }
               );
-            }, 1500);
-          }
-        },
-      };
-
-      mainTimer = setTimeout(function () {
-        if (parsedProduct) {
-          finishSuccess();
-          return;
-        }
-        chrome.tabs.sendMessage(tabId, { type: "GET_DOM_SNAPSHOT" }, function (snapshot) {
-          if (!chrome.runtime.lastError && snapshot && (snapshot.ldProduct || snapshot.ogTitle)) {
-            const block = ShopeeParser.detectBlockedOrLoginState(snapshot.url, null);
-            if (block.blocked) {
-              const bErr = new Error(block.reason);
-              bErr.captureStatus = block.status;
-              finishError(bErr);
-              return;
+            } else {
+              startNavigation();
             }
-            parsedProduct = ShopeeParser.parseGenericPageMetadata(snapshot, {
-              affiliateUrl: job.affiliateUrl,
-              cleanUrl: snapshot.url || initialUrl,
-            });
-            capturedPdpRaw = JSON.stringify(snapshot);
-            capturedPdpUrl = "dom:timeout-fallback";
-            finishSuccess();
-          } else {
-            finishError(
-              new Error(
-                "Timeout menunggu response body produk Shopee (pastikan indikator Sesi Shopee di tab Worker berwarna HIJAU Aktif)"
-              )
-            );
-          }
-        });
-      }, CAPTURE_TIMEOUT_MS);
-
-      function startNavigation() {
-        chrome.tabs.update(tabId, { url: initialUrl }, function () {
-          if (chrome.runtime.lastError) {
-            finishError(new Error(chrome.runtime.lastError.message));
-          }
-        });
-      }
-
-      if (state.useCdpDebugger) {
-        chrome.debugger.attach({ tabId }, "1.3", function () {
-          if (!chrome.runtime.lastError) {
-            debuggerAttached = true;
-            chrome.debugger.sendCommand(
-              { tabId },
-              "Network.enable",
-              { maxPostDataSize: 65536 },
-              function () {
-                void chrome.runtime.lastError;
-                applyCdpDesktopProfile(tabId, startNavigation);
-              }
-            );
-          } else {
-            startNavigation();
-          }
-        });
-      } else {
-        startNavigation();
-      }
+          });
+        } else {
+          startNavigation();
+        }
+      });
     });
-  }
-
-  function safeJsonParse(str) {
-    if (!str) return null;
-    try {
-      return JSON.parse(str);
-    } catch (_) {
-      return str;
-    }
   }
 
   chrome.debugger.onEvent.addListener(function (source, method, params) {
@@ -1208,29 +1257,42 @@
   });
 
   chrome.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+    // Begitu login di tab Login berhasil masuk ke beranda Shopee & cookie SPC_EC tersimpan,
+    // otomatis tutup tab Shopee juga agar tidak didiamkan (mencegah verifikasi ulang)!
     if (tabId === state.qrLoginTabId && changeInfo.status === "complete") {
       const u = (tab && tab.url) || "";
       if (u.includes("shopee.co.id") && !u.includes("/buyer/login") && !u.includes("/verify/")) {
+        const finishedLoginTabId = state.qrLoginTabId;
         state.qrLoginTabId = null;
-        checkShopeeAuthSession().then((auth) => {
-          if (state.paused) {
-            state.paused = false;
-            state.pauseReason = null;
-          }
-          logEvent(
-            "info",
-            `Login Shopee berhasil! Sesi ${
-              auth.loggedIn ? "AKTIF" + (auth.userId ? " (UID: " + auth.userId + ")" : "") : "terdeteksi"
-            }.`
-          );
-          retryBridgeQueueAfterLogin();
-        });
+        setTimeout(function () {
+          checkShopeeAuthSession().then((auth) => {
+            if (state.paused) {
+              state.paused = false;
+              state.pauseReason = null;
+            }
+            if (state.autoCloseShopeeTab && auth.loggedIn) {
+              closeTabSafely(finishedLoginTabId);
+              logEvent(
+                "info",
+                `✅ Login Shopee berhasil${
+                  auth.userId ? " (UID: " + auth.userId + ")" : ""
+                }! Tab Shopee ditutup otomatis agar sesi aman dari verifikasi ulang.`
+              );
+            } else {
+              logEvent(
+                "info",
+                `Login Shopee selesai (${auth.loggedIn ? "Sesi AKTIF" : "cek cookie"}).`
+              );
+            }
+            retryBridgeQueueAfterLogin();
+          });
+        }, 1200);
       }
     }
 
     if (
       state.fullDesktopCloak &&
-      tabId !== state.workerTabId &&
+      tabId !== state.activeCaptureTabId &&
       changeInfo.url &&
       (changeInfo.url.includes("/universal-link/") || changeInfo.url.includes("/opaanlp/")) &&
       ShopeeParser.isShopeeDomain(safeHostname(changeInfo.url))
@@ -1284,6 +1346,14 @@
         activeCaptureSession.onPageHookResponse(msg);
       }
       return false;
+    }
+
+    if (msg.type === "APP_FOREGROUNDED") {
+      triggerForegroundBurst();
+      checkShopeeAuthSession().then(() => {
+        sendResponse(getPublicState());
+      });
+      return true;
     }
 
     if (msg.type === "GET_WORKER_STATE") {
@@ -1363,6 +1433,10 @@
         state.fullDesktopCloak = msg.fullDesktopCloak;
         chrome.storage.local.set({ fullDesktopCloak: state.fullDesktopCloak });
       }
+      if (typeof msg.autoCloseShopeeTab === "boolean") {
+        state.autoCloseShopeeTab = msg.autoCloseShopeeTab;
+        chrome.storage.local.set({ autoCloseShopeeTab: state.autoCloseShopeeTab });
+      }
       if (msg.type === "RECONNECT_BRIDGE") {
         try {
           if (ws) ws.close();
@@ -1386,7 +1460,10 @@
         connectWebSocket();
       }
       triggerQueueCheck();
-    }, 15000);
-    logEvent("info", `ShopVault Kiwi Worker v${EXTENSION_VERSION} aktif.`);
+    }, 10000);
+    logEvent(
+      "info",
+      `ShopVault Kiwi Worker v${EXTENSION_VERSION} aktif (Auto-Close & Raw JSON Murni).`
+    );
   });
 })();

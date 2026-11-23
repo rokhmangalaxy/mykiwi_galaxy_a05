@@ -263,8 +263,9 @@
     <div class="toolbar">
       <input id="searchInput" type="text" placeholder="Cari judul produk, nama toko, atau ID..." />
       <button id="refreshBtn">🔄 Refresh</button>
-      <a class="btn teal" href="/api/export.json" target="_blank">📦 Unduh Semua JSON</a>
-      <a class="btn" href="/api/export.csv" target="_blank">📊 Unduh CSV</a>
+      <a class="btn teal" href="/api/export-raw.zip" target="_blank">📦 Unduh ZIP Raw JSON Asli</a>
+      <a class="btn" href="/api/export.json" target="_blank">📋 Katalog JSON</a>
+      <a class="btn" href="/api/export.csv" target="_blank">📊 CSV</a>
     </div>
 
     <div id="productList" class="grid"></div>
@@ -460,11 +461,34 @@
           }
 
           const aRaw = document.createElement("a");
-          aRaw.className = "btn";
+          aRaw.className = "btn teal";
           aRaw.href = "/api/products/" + p.id + "/raw";
           aRaw.target = "_blank";
-          aRaw.textContent = "📄 Raw JSON";
+          aRaw.textContent = "📄 Buka Raw JSON Asli";
           actions.appendChild(aRaw);
+
+          const aRawDl = document.createElement("a");
+          aRawDl.className = "btn";
+          aRawDl.href = "/api/products/" + p.id + "/raw?download=1";
+          aRawDl.textContent = "⬇️ File .json Asli";
+          actions.appendChild(aRawDl);
+
+          const btnCopyRaw = document.createElement("button");
+          btnCopyRaw.textContent = "📋 Copy Raw JSON";
+          btnCopyRaw.onclick = async () => {
+            try {
+              const r = await fetch("/api/products/" + p.id + "/raw", { cache: "no-store" });
+              if (!r.ok) {
+                showToast("❌ File Raw JSON tidak ditemukan");
+                return;
+              }
+              const rawTxt = await r.text();
+              await copyText("Raw JSON Asli", rawTxt);
+            } catch (_) {
+              showToast("❌ Gagal membaca Raw JSON");
+            }
+          };
+          actions.appendChild(btnCopyRaw);
 
           const aClean = document.createElement("a");
           aClean.className = "btn";
